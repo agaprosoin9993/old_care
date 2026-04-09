@@ -31,4 +31,10 @@ public class User {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    @Column(nullable = false, columnDefinition = "varchar(20) default 'elder'")
+    private String role; // elder or child
+
+    @Column(name = "parent_id")
+    private Long parentId; // for child users, refers to elder user id
 }

@@ -21,7 +21,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
 
     @Transactional
-    public AuthResult register(String username, String password, String displayName) {
+    public AuthResult register(String username, String password, String displayName, String role, Long parentId) {
         if (userRepository.existsByUsername(username)) {
             throw new RuntimeException("username already exists");
         }
@@ -31,6 +31,8 @@ public class AuthService {
         user.setUsername(username);
         user.setPasswordHash(passwordHash);
         user.setDisplayName(displayName != null ? displayName : "");
+        user.setRole(role != null ? role : "elder");
+        user.setParentId(parentId);
         user = userRepository.save(user);
 
         String token = UUID.randomUUID().toString();
@@ -39,8 +41,13 @@ public class AuthService {
         session.setUserId(user.getId());
         sessionRepository.save(session);
 
-        UserInfo userInfo = UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName());
+        UserInfo userInfo = UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId());
         return new AuthResult(token, userInfo);
+    }
+
+    @Transactional
+    public AuthResult register(String username, String password, String displayName) {
+        return register(username, password, displayName, "elder", null);
     }
 
     @Transactional
@@ -58,7 +65,7 @@ public class AuthService {
         session.setUserId(user.getId());
         sessionRepository.save(session);
 
-        UserInfo userInfo = UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName());
+        UserInfo userInfo = UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId());
         return new AuthResult(token, userInfo);
     }
 
@@ -67,7 +74,7 @@ public class AuthService {
                 .map(session -> {
                     User user = userRepository.findById(session.getUserId()).orElse(null);
                     if (user == null) return null;
-                    return UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName());
+                    return UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId());
                 });
     }
 

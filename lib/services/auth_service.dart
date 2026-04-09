@@ -5,10 +5,13 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthResult {
-  AuthResult({required this.token, required this.username, required this.displayName});
+  AuthResult({required this.token, required this.username, required this.displayName, this.id, this.role, this.parentId});
   final String token;
   final String username;
   final String displayName;
+  final int? id;
+  final String? role;
+  final int? parentId;
 }
 
 class AuthService {
@@ -32,13 +35,13 @@ class AuthService {
     return h;
   }
 
-  Future<AuthResult> register(String username, String password, String displayName) async {
+  Future<AuthResult> register(String username, String password, String displayName, [String role = 'elder', int? parentId]) async {
     try {
       final resp = await http
           .post(
             _u('/auth/register'),
             headers: _headers(),
-            body: jsonEncode({'username': username, 'password': password, 'displayName': displayName}),
+            body: jsonEncode({'username': username, 'password': password, 'displayName': displayName, 'role': role, 'parentId': parentId}),
           )
           .timeout(const Duration(seconds: 5));
       if (resp.statusCode != 201) {
@@ -52,6 +55,9 @@ class AuthService {
         token: _token!,
         username: user['username'] as String? ?? username,
         displayName: user['displayName'] as String? ?? '',
+        id: user['id'] as int?,
+        role: user['role'] as String?,
+        parentId: user['parentId'] as int?,
       );
     } catch (_) {
       // 无后端时降级为本地注册
@@ -79,6 +85,9 @@ class AuthService {
         token: _token!,
         username: user['username'] as String? ?? username,
         displayName: user['displayName'] as String? ?? '',
+        id: user['id'] as int?,
+        role: user['role'] as String?,
+        parentId: user['parentId'] as int?,
       );
     } catch (_) {
       return _loginOffline(username, password);
@@ -90,7 +99,7 @@ class AuthService {
     if (_token == _offlineToken) {
       final offline = await _loadOfflineAccount();
       if (offline != null) {
-        return AuthResult(token: _offlineToken, username: offline['username']!, displayName: offline['display']!);
+        return AuthResult(token: _offlineToken, username: offline['username']!, displayName: offline['display']!, id: 1, role: 'elder');
       }
     }
     try {
@@ -102,12 +111,15 @@ class AuthService {
         token: _token!,
         username: user['username'] as String? ?? '',
         displayName: user['displayName'] as String? ?? '',
+        id: user['id'] as int?,
+        role: user['role'] as String?,
+        parentId: user['parentId'] as int?,
       );
     } catch (_) {
       // 离线时返回本地用户
       final offline = await _loadOfflineAccount();
       if (offline != null && _token == _offlineToken) {
-        return AuthResult(token: _offlineToken, username: offline['username']!, displayName: offline['display']!);
+        return AuthResult(token: _offlineToken, username: offline['username']!, displayName: offline['display']!, id: 1, role: 'elder');
       }
       return null;
     }
@@ -159,7 +171,7 @@ class AuthService {
       _token = _offlineToken;
       await _persistToken();
       await _persistOfflineAccount(candidate['username']!, candidate['password']!, candidate['display']!);
-      return AuthResult(token: _offlineToken, username: candidate['username']!, displayName: candidate['display']!);
+      return AuthResult(token: _offlineToken, username: candidate['username']!, displayName: candidate['display']!, id: 1, role: 'elder');
     }
     throw HttpException('offline login failed');
   }
@@ -169,6 +181,6 @@ class AuthService {
     _token = _offlineToken;
     await _persistOfflineAccount(username, password, display);
     await _persistToken();
-    return AuthResult(token: _offlineToken, username: username, displayName: display);
+    return AuthResult(token: _offlineToken, username: username, displayName: display, id: 1, role: 'elder');
   }
 }

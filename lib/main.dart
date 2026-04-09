@@ -39,6 +39,8 @@ class _GuardianAppState extends State<GuardianApp> {
   DateTime? lastHelpTime;
   bool isAuthed = false;// 是否已认证
   String? currentUser;
+  int? currentUserId;
+  String? currentUserRole;
   String? mapPreviewUrl;
   bool _locating = false;
 
@@ -125,7 +127,7 @@ class _GuardianAppState extends State<GuardianApp> {
     api.setToken(authService.token);
     final me = await authService.me();
     if (me != null && mounted) {
-      _onAuthed(me.token, me.username, me.displayName, refreshData: false);
+      _onAuthed(me.token, me.username, me.displayName, refreshData: false, userId: me.id, role: me.role);
       _loadRemindersFromBackend();
       _loadFamilyFromBackend();
     } else if (!authRequired) {
@@ -133,11 +135,13 @@ class _GuardianAppState extends State<GuardianApp> {
     }
   }
 
-  void _onAuthed(String token, String username, String displayName, {bool refreshData = true}) {
+  void _onAuthed(String token, String username, String displayName, {bool refreshData = true, int? userId, String? role}) {
     api.setToken(token);
     setState(() {
       isAuthed = true;
       currentUser = displayName.isNotEmpty ? displayName : username;
+      currentUserId = userId;
+      currentUserRole = role;
     });
     if (refreshData) {
       _loadRemindersFromBackend();
@@ -151,6 +155,8 @@ class _GuardianAppState extends State<GuardianApp> {
     setState(() {
       isAuthed = false;
       currentUser = null;
+      currentUserId = null;
+      currentUserRole = null;
     });
   }
 
@@ -173,13 +179,56 @@ class _GuardianAppState extends State<GuardianApp> {
                   builder: (_) => AuthPage(
                     onAuthed: (r) {
                       Navigator.of(ctx).pop();
-                      _onAuthed(r.token, r.username, r.displayName);
+                      _onAuthed(r.token, r.username, r.displayName, userId: r.id, role: r.role);
                     },
                     onCancel: authRequired ? null : () => Navigator.of(ctx).pop(),
                   ),
                 ));
               },
             ),
+            if (isAuthed && currentUserId != null && currentUserRole == 'elder')
+              ListTile(
+                leading: const Icon(Icons.perm_identity),
+                title: const Text('查看账号ID'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  showDialog(
+                    context: ctx,
+                    builder: (dialogCtx) => AlertDialog(
+                      title: const Text('您的账号ID'),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '$currentUserId',
+                            style: const TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue,
+                              letterSpacing: 2,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            '请将此ID告诉子女，用于注册子女账号',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(dialogCtx).pop(),
+                          child: const Text('确定'),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             if (isAuthed)
               ListTile(
                 leading: const Icon(Icons.logout),
@@ -253,7 +302,7 @@ class _GuardianAppState extends State<GuardianApp> {
         body: SafeArea(//安全区域，防止内容被状态栏遮挡
           child: authRequired && !isAuthed
               ? AuthPage(//登录/注册页面
-                  onAuthed: (r) => _onAuthed(r.token, r.username, r.displayName),
+                  onAuthed: (r) => _onAuthed(r.token, r.username, r.displayName, userId: r.id, role: r.role),
                   onCancel: null,
                 )
               : IndexedStack(

@@ -12,4 +12,8 @@ public class RegisterRequest {
     private String password;
 
     private String displayName;
+    
+    private String role; // elder or child
+    
+    private Long parentId; // for child users
 }

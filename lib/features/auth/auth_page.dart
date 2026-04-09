@@ -21,6 +21,8 @@ class _AuthPageState extends State<AuthPage> {
   String _regUser = '';
   String _regPass = '';
   String _regName = '';
+  String _regRole = 'elder'; // elder or child
+  String _regParentId = '';
   bool _loading = false;
 
   Future<void> _doLogin() async {
@@ -40,8 +42,48 @@ class _AuthPageState extends State<AuthPage> {
     if (!(_registerForm.currentState?.validate() ?? false)) return;
     setState(() => _loading = true);
     try {
-      final res = await _auth.register(_regUser, _regPass, _regName);
-      widget.onAuthed(res);
+      final res = await _auth.register(_regUser, _regPass, _regName, _regRole, _regParentId.isEmpty ? null : int.tryParse(_regParentId));
+      // 显示用户ID提示
+      if (res.id != null && mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('注册成功'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('您的账号ID是：'),
+                const SizedBox(height: 8),
+                Text(
+                  '${res.id}',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (_regRole == 'elder')
+                  const Text(
+                    '请将此ID告诉子女，用于注册子女账号',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  widget.onAuthed(res);
+                },
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        widget.onAuthed(res);
+      }
     } catch (e) {
       _showError('注册失败: $e');
     } finally {
@@ -154,6 +196,31 @@ class _AuthPageState extends State<AuthPage> {
             decoration: const InputDecoration(labelText: '昵称/称呼'),
             onChanged: (v) => _regName = v,
           ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              const Text('角色: '),
+              Radio(
+                value: 'elder',
+                groupValue: _regRole,
+                onChanged: (value) => setState(() => _regRole = value!),
+              ),
+              const Text('老人'),
+              Radio(
+                value: 'child',
+                groupValue: _regRole,
+                onChanged: (value) => setState(() => _regRole = value!),
+              ),
+              const Text('子女'),
+            ],
+          ),
+          if (_regRole == 'child')
+            TextFormField(
+              decoration: const InputDecoration(labelText: '老人账号ID'),
+              onChanged: (v) => _regParentId = v.trim(),
+              validator: (v) => (_regRole == 'child' && (v == null || v.isEmpty)) ? '请输入老人账号ID' : null,
+              keyboardType: TextInputType.number,
+            ),
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: _loading ? null : _doRegister,
