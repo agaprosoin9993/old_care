@@ -154,7 +154,7 @@ class _GuardianAppState extends State<GuardianApp> {
     });
   }
 
-  void _openAccountSheet() {
+  void _openAccountSheet() {//打开账户弹窗
     final ctx = _navigatorKey.currentContext;
     if (ctx == null) return;
 
@@ -233,7 +233,7 @@ class _GuardianAppState extends State<GuardianApp> {
       navigatorKey: _navigatorKey,// 导航键，用于在全局访问导航器
       scaffoldMessengerKey: _scaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
-      title: '老友伴 · 老人呵护助手',
+      title: '安心儿-老人呵护助手',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.redAccent),
         useMaterial3: true,
@@ -241,16 +241,16 @@ class _GuardianAppState extends State<GuardianApp> {
       ),
       home: Scaffold(
         appBar: AppBar(
-          title: Text(isAuthed ? '老友伴 · ${currentUser ?? '已登录'}' : '老友伴 · 安全守护'),
+          title: Text(isAuthed ? '安心儿 · ${currentUser ?? '已登录'}' : '安心儿 · 安全守护'),
           actions: [
             IconButton(
               onPressed: _openAccountSheet,
               icon: const Icon(Icons.person),
-              tooltip: isAuthed ? '切换/退出登录' : '登录/注册',
+              tooltip: isAuthed ? '切换/退出登录' : '登录/注册',//提示框
             )
           ],
         ),
-        body: SafeArea(
+        body: SafeArea(//安全区域，防止内容被状态栏遮挡
           child: authRequired && !isAuthed
               ? AuthPage(//登录/注册页面
                   onAuthed: (r) => _onAuthed(r.token, r.username, r.displayName),
