@@ -3,20 +3,22 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
 
 class AuthResult {
-  AuthResult({required this.token, required this.username, required this.displayName, this.id, this.role, this.parentId});
+  AuthResult({required this.token, required this.username, required this.displayName, this.id, this.role, this.parentId, this.elderId});
   final String token;
   final String username;
   final String displayName;
   final int? id;
   final String? role;
   final int? parentId;
+  final String? elderId;
 }
 
 class AuthService {
   AuthService({String? baseUrl})
-      : baseUrl = baseUrl ?? const String.fromEnvironment('BACKEND_BASE_URL', defaultValue: 'http://localhost:3001');
+      : baseUrl = baseUrl ?? const String.fromEnvironment('BACKEND_BASE_URL', defaultValue: 'http://10.0.2.2:3001');
 
   final String baseUrl;
   String? _token;
@@ -51,6 +53,11 @@ class AuthService {
       _token = data['token'] as String?;
       await _persistToken();
       final user = data['user'] as Map<String, dynamic>? ?? {};
+      if (kDebugMode) {
+        print('Backend response: $data');
+        print('User data: $user');
+        print('Elder ID from backend: ${user['elderId']}');
+      }
       return AuthResult(
         token: _token!,
         username: user['username'] as String? ?? username,
@@ -58,6 +65,7 @@ class AuthService {
         id: user['id'] as int?,
         role: user['role'] as String?,
         parentId: user['parentId'] as int?,
+        elderId: user['elderId'] as String?,
       );
     } catch (_) {
       // 无后端时降级为本地注册
@@ -81,6 +89,11 @@ class AuthService {
       _token = data['token'] as String?;
       await _persistToken();
       final user = data['user'] as Map<String, dynamic>? ?? {};
+      if (kDebugMode) {
+        print('Backend response: $data');
+        print('User data: $user');
+        print('Elder ID from backend: ${user['elderId']}');
+      }
       return AuthResult(
         token: _token!,
         username: user['username'] as String? ?? username,
@@ -88,6 +101,7 @@ class AuthService {
         id: user['id'] as int?,
         role: user['role'] as String?,
         parentId: user['parentId'] as int?,
+        elderId: user['elderId'] as String?,
       );
     } catch (_) {
       return _loginOffline(username, password);
@@ -99,7 +113,7 @@ class AuthService {
     if (_token == _offlineToken) {
       final offline = await _loadOfflineAccount();
       if (offline != null) {
-        return AuthResult(token: _offlineToken, username: offline['username']!, displayName: offline['display']!, id: 1, role: 'elder');
+        return AuthResult(token: _offlineToken, username: offline['username']!, displayName: offline['display']!, id: 1, role: 'elder', elderId: '123456');
       }
     }
     try {
@@ -114,12 +128,13 @@ class AuthService {
         id: user['id'] as int?,
         role: user['role'] as String?,
         parentId: user['parentId'] as int?,
+        elderId: user['elderId'] as String?,
       );
     } catch (_) {
       // 离线时返回本地用户
       final offline = await _loadOfflineAccount();
-      if (offline != null && _token == _offlineToken) {
-        return AuthResult(token: _offlineToken, username: offline['username']!, displayName: offline['display']!, id: 1, role: 'elder');
+      if (offline != null) {
+        return AuthResult(token: _token!, username: offline['username']!, displayName: offline['display']!, id: 1, role: 'elder', elderId: '123456');
       }
       return null;
     }
@@ -171,7 +186,7 @@ class AuthService {
       _token = _offlineToken;
       await _persistToken();
       await _persistOfflineAccount(candidate['username']!, candidate['password']!, candidate['display']!);
-      return AuthResult(token: _offlineToken, username: candidate['username']!, displayName: candidate['display']!, id: 1, role: 'elder');
+      return AuthResult(token: _offlineToken, username: candidate['username']!, displayName: candidate['display']!, id: 1, role: 'elder', elderId: '123456');
     }
     throw HttpException('offline login failed');
   }
@@ -181,6 +196,6 @@ class AuthService {
     _token = _offlineToken;
     await _persistOfflineAccount(username, password, display);
     await _persistToken();
-    return AuthResult(token: _offlineToken, username: username, displayName: display, id: 1, role: 'elder');
+    return AuthResult(token: _offlineToken, username: username, displayName: display, id: 1, role: 'elder', elderId: '123456');
   }
 }

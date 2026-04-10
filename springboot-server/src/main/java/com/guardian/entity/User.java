@@ -37,4 +37,7 @@ public class User {
 
     @Column(name = "parent_id")
     private Long parentId; // for child users, refers to elder user id
+
+    @Column(name = "elder_id", length = 6, unique = true)
+    private String elderId; // 6-digit random unique ID for elder users
 }

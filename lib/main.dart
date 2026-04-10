@@ -41,6 +41,8 @@ class _GuardianAppState extends State<GuardianApp> {
   String? currentUser;
   int? currentUserId;
   String? currentUserRole;
+  String? currentElderId;
+  String? elderName;
   String? mapPreviewUrl;
   bool _locating = false;
 
@@ -127,7 +129,7 @@ class _GuardianAppState extends State<GuardianApp> {
     api.setToken(authService.token);
     final me = await authService.me();
     if (me != null && mounted) {
-      _onAuthed(me.token, me.username, me.displayName, refreshData: false, userId: me.id, role: me.role);
+      _onAuthed(me.token, me.username, me.displayName, refreshData: false, userId: me.id, role: me.role, elderId: me.elderId);
       _loadRemindersFromBackend();
       _loadFamilyFromBackend();
     } else if (!authRequired) {
@@ -135,17 +137,35 @@ class _GuardianAppState extends State<GuardianApp> {
     }
   }
 
-  void _onAuthed(String token, String username, String displayName, {bool refreshData = true, int? userId, String? role}) {
+  void _onAuthed(String token, String username, String displayName, {bool refreshData = true, int? userId, String? role, String? elderId, int? parentId}) {
     api.setToken(token);
     setState(() {
       isAuthed = true;
       currentUser = displayName.isNotEmpty ? displayName : username;
       currentUserId = userId;
       currentUserRole = role;
+      currentElderId = elderId;
     });
     if (refreshData) {
       _loadRemindersFromBackend();
       _loadFamilyFromBackend();
+    }
+    // 如果是子女角色，获取对应老人的信息
+    if (role == 'child' && parentId != null) {
+      _loadElderInfo(parentId);
+    }
+  }
+
+  Future<void> _loadElderInfo(int elderId) async {
+    try {
+      final elderInfo = await api.getUserInfo(elderId);
+      if (elderInfo != null && mounted) {
+        setState(() {
+          elderName = elderInfo['displayName'] as String? ?? elderInfo['username'] as String? ?? '老人';
+        });
+      }
+    } catch (_) {
+      // 忽略错误
     }
   }
 
@@ -157,6 +177,8 @@ class _GuardianAppState extends State<GuardianApp> {
       currentUser = null;
       currentUserId = null;
       currentUserRole = null;
+      currentElderId = null;
+      elderName = null;
     });
   }
 
@@ -179,14 +201,14 @@ class _GuardianAppState extends State<GuardianApp> {
                   builder: (_) => AuthPage(
                     onAuthed: (r) {
                       Navigator.of(ctx).pop();
-                      _onAuthed(r.token, r.username, r.displayName, userId: r.id, role: r.role);
+                      _onAuthed(r.token, r.username, r.displayName, userId: r.id, role: r.role, elderId: r.elderId, parentId: r.parentId);
                     },
                     onCancel: authRequired ? null : () => Navigator.of(ctx).pop(),
                   ),
                 ));
               },
             ),
-            if (isAuthed && currentUserId != null && currentUserRole == 'elder')
+            if (isAuthed && currentElderId != null && currentUserRole == 'elder')
               ListTile(
                 leading: const Icon(Icons.perm_identity),
                 title: const Text('查看账号ID'),
@@ -200,7 +222,7 @@ class _GuardianAppState extends State<GuardianApp> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            '$currentUserId',
+                            '$currentElderId',
                             style: const TextStyle(
                               fontSize: 28,
                               fontWeight: FontWeight.bold,
@@ -227,6 +249,18 @@ class _GuardianAppState extends State<GuardianApp> {
                       ],
                     ),
                   );
+                },
+              ),
+            if (isAuthed && currentUserRole == 'child')
+              ListTile(
+                leading: const Icon(Icons.family_restroom),
+                title: Text(currentUserId != null ? '绑定老人ID' : '绑定老人ID'),
+                subtitle: currentUserId != null && elderName != null 
+                    ? Text('已绑定: $elderName') 
+                    : const Text('未绑定老人ID'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _showBindElderDialog(ctx);
                 },
               ),
             if (isAuthed)
@@ -276,6 +310,72 @@ class _GuardianAppState extends State<GuardianApp> {
     }
   }
 
+  void _showBindElderDialog(BuildContext context) {
+    final TextEditingController _elderIdController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('绑定老人ID'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('请输入老人的账号ID，用于查看老人状态'),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _elderIdController,
+              decoration: const InputDecoration(labelText: '老人账号ID'),
+              keyboardType: TextInputType.number,
+              validator: (v) {
+                if (v == null || v.isEmpty) return '请输入老人账号ID';
+                if (v.length != 6 || !RegExp(r'^[0-9]+$').hasMatch(v)) {
+                  return '老人ID必须为六位数字';
+                }
+                return null;
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final elderId = _elderIdController.text.trim();
+              if (elderId.length != 6 || !RegExp(r'^[0-9]+$').hasMatch(elderId)) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('老人ID必须为六位数字')),
+                );
+                return;
+              }
+              try {
+                // 调用后端API来绑定老人ID
+                final result = await api.bindElder(int.parse(elderId));
+                if (result != null) {
+                  // 绑定成功，获取老人信息
+                  final parentId = result['data']['parentId'] as int?;
+                  if (parentId != null) {
+                    await _loadElderInfo(parentId);
+                  }
+                  Navigator.of(dialogCtx).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('绑定成功')),
+                  );
+                }
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('绑定失败: $e')),
+                );
+              }
+            },
+            child: const Text('绑定'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -290,7 +390,11 @@ class _GuardianAppState extends State<GuardianApp> {
       ),
       home: Scaffold(
         appBar: AppBar(
-          title: Text(isAuthed ? '安心儿 · ${currentUser ?? '已登录'}' : '安心儿 · 安全守护'),
+          title: Text(isAuthed 
+              ? currentUserRole == 'child' 
+                ? '安心儿 · ${currentUser ?? '已登录'} (【${elderName ?? '老人'}】的监护人)' 
+                : '安心儿 · ${currentUser ?? '已登录'}' 
+              : '安心儿 · 安全守护'),
           actions: [
             IconButton(
               onPressed: _openAccountSheet,
@@ -302,7 +406,7 @@ class _GuardianAppState extends State<GuardianApp> {
         body: SafeArea(//安全区域，防止内容被状态栏遮挡
           child: authRequired && !isAuthed
               ? AuthPage(//登录/注册页面
-                  onAuthed: (r) => _onAuthed(r.token, r.username, r.displayName, userId: r.id, role: r.role),
+                  onAuthed: (r) => _onAuthed(r.token, r.username, r.displayName, userId: r.id, role: r.role, elderId: r.elderId, parentId: r.parentId),
                   onCancel: null,
                 )
               : IndexedStack(

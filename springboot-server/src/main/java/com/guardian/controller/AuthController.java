@@ -71,4 +71,43 @@ public class AuthController {
                     .body(ApiResponse.error("unauthorized"));
         }
     }
+
+    @GetMapping("/users/{id}")
+    public ResponseEntity<?> getUserById(@PathVariable Long id, @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("unauthorized"));
+        }
+
+        Optional<UserInfo> userInfo = authService.getUserById(id);
+        if (userInfo.isPresent()) {
+            return ResponseEntity.ok(userInfo.get());
+        } else {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("user not found"));
+        }
+    }
+
+    @PutMapping("/bind-elder")
+    public ResponseEntity<?> bindElder(@RequestHeader(value = "Authorization", required = false) String authHeader, @RequestParam Long elderId) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("unauthorized"));
+        }
+
+        String token = authHeader.substring(7);
+        Optional<Long> userIdOpt = authService.getUserIdByToken(token);
+        if (!userIdOpt.isPresent()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("unauthorized"));
+        }
+
+        try {
+            // 调用 AuthService 中的方法来更新用户的 parentId
+            UserInfo updatedUser = authService.updateParentId(userIdOpt.get(), elderId);
+            return ResponseEntity.ok(ApiResponse.success(updatedUser, "绑定成功"));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+        }
+    }
 }

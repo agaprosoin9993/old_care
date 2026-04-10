@@ -144,6 +144,29 @@ class ApiClient {// 后端API客户端
     return ok;
   }
 
+  Future<Map<String, dynamic>?> getUserInfo(int userId) async {
+    if (!enabled) return null;
+    try {
+      final resp = await http.get(_u('/users/$userId'), headers: _headers()).timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) throw HttpException('load user info failed ${resp.statusCode}');
+      return jsonDecode(resp.body) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> bindElder(int elderId) async {
+    if (!enabled) return null;
+    try {
+      final resp = await http.put(_u('/bind-elder?elderId=$elderId'), headers: _headers()).timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) throw HttpException('bind elder failed ${resp.statusCode}');
+      return jsonDecode(resp.body) as Map<String, dynamic>;
+    } catch (e) {
+      print('bindElder error: $e');
+      throw e;
+    }
+  }
+
   /// ---------------- 离线联系人存储 ----------------
   Future<List<Contact>> _loadOfflineContacts() async {
     final prefs = await SharedPreferences.getInstance();

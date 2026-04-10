@@ -44,7 +44,7 @@ class _AuthPageState extends State<AuthPage> {
     try {
       final res = await _auth.register(_regUser, _regPass, _regName, _regRole, _regParentId.isEmpty ? null : int.tryParse(_regParentId));
       // 显示用户ID提示
-      if (res.id != null && mounted) {
+      if ((res.id != null || res.elderId != null) && mounted && _regRole == 'elder') {
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -55,7 +55,7 @@ class _AuthPageState extends State<AuthPage> {
                 const Text('您的账号ID是：'),
                 const SizedBox(height: 8),
                 Text(
-                  '${res.id}',
+                  '${_regRole == 'elder' ? res.elderId : res.id}',
                   style: const TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -216,9 +216,15 @@ class _AuthPageState extends State<AuthPage> {
           ),
           if (_regRole == 'child')
             TextFormField(
-              decoration: const InputDecoration(labelText: '老人账号ID'),
+              decoration: const InputDecoration(labelText: '老人账号ID（可选）'),
               onChanged: (v) => _regParentId = v.trim(),
-              validator: (v) => (_regRole == 'child' && (v == null || v.isEmpty)) ? '请输入老人账号ID' : null,
+              validator: (v) {
+                if (v == null || v.isEmpty) return null; // 可选字段
+                if (v.length != 6 || !RegExp(r'^[0-9]+$').hasMatch(v)) {
+                  return '老人ID必须为六位数字';
+                }
+                return null;
+              },
               keyboardType: TextInputType.number,
             ),
           const SizedBox(height: 16),
