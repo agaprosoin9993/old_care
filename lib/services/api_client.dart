@@ -9,7 +9,7 @@ import '../models/contact.dart';
 
 class ApiClient {// 后端API客户端
   ApiClient({String? baseUrl})
-      : baseUrl = baseUrl ?? const String.fromEnvironment('BACKEND_BASE_URL', defaultValue: 'http://localhost:3001');
+      : baseUrl = baseUrl ?? const String.fromEnvironment('BACKEND_BASE_URL', defaultValue: 'http://10.0.2.2:3001');
 
   final String baseUrl;
   String? _token;
@@ -147,7 +147,7 @@ class ApiClient {// 后端API客户端
   Future<Map<String, dynamic>?> getUserInfo(int userId) async {
     if (!enabled) return null;
     try {
-      final resp = await http.get(_u('/users/$userId'), headers: _headers()).timeout(const Duration(seconds: 5));
+      final resp = await http.get(_u('/auth/users/$userId'), headers: _headers()).timeout(const Duration(seconds: 5));
       if (resp.statusCode != 200) throw HttpException('load user info failed ${resp.statusCode}');
       return jsonDecode(resp.body) as Map<String, dynamic>;
     } catch (_) {
@@ -158,11 +158,23 @@ class ApiClient {// 后端API客户端
   Future<Map<String, dynamic>?> bindElder(int elderId) async {
     if (!enabled) return null;
     try {
-      final resp = await http.put(_u('/bind-elder?elderId=$elderId'), headers: _headers()).timeout(const Duration(seconds: 5));
+      final resp = await http.put(_u('/auth/bind-elder?elderId=$elderId'), headers: _headers()).timeout(const Duration(seconds: 5));
       if (resp.statusCode != 200) throw HttpException('bind elder failed ${resp.statusCode}');
       return jsonDecode(resp.body) as Map<String, dynamic>;
     } catch (e) {
       print('bindElder error: $e');
+      throw e;
+    }
+  }
+
+  Future<Map<String, dynamic>?> unbindElder() async {
+    if (!enabled) return null;
+    try {
+      final resp = await http.put(_u('/auth/unbind-elder'), headers: _headers()).timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) throw HttpException('unbind elder failed ${resp.statusCode}');
+      return jsonDecode(resp.body) as Map<String, dynamic>;
+    } catch (e) {
+      print('unbindElder error: $e');
       throw e;
     }
   }

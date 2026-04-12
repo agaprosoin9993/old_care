@@ -42,13 +42,20 @@ public class AuthService {
             throw new RuntimeException("username already exists");
         }
 
+        Long actualParentId = null;
+        
         // Validate parentId if provided for child role
+        // parentId实际上是老人的elderId（6位字符串），需要转换为老人的数据库ID
         if ("child".equals(role) && parentId != null) {
-            User parentUser = userRepository.findById(parentId)
+            // 将Long转换为String（elderId是6位字符串）
+            String elderId = String.format("%06d", parentId);
+            User parentUser = userRepository.findByElderId(elderId)
                     .orElseThrow(() -> new RuntimeException("老人账号ID不存在"));
             if (!"elder".equals(parentUser.getRole())) {
                 throw new RuntimeException("指定的ID不是老人账号");
             }
+            // 使用老人的数据库ID作为parentId
+            actualParentId = parentUser.getId();
         }
 
         String passwordHash = passwordEncoder.encode(password);
@@ -57,7 +64,7 @@ public class AuthService {
         user.setPasswordHash(passwordHash);
         user.setDisplayName(displayName != null ? displayName : "");
         user.setRole(role != null ? role : "elder");
-        user.setParentId(parentId);
+        user.setParentId(actualParentId);
         
         // Generate 6-digit random unique elderId for elder users
         if ("elder".equals(role)) {
@@ -125,18 +132,31 @@ public class AuthService {
     }
 
     @Transactional
-    public UserInfo updateParentId(Long userId, Long parentId) {
+    public UserInfo updateParentId(Long userId, Long elderId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("user not found"));
         
-        // 验证 parentId 是否存在且为老人角色
-        User parentUser = userRepository.findById(parentId)
+        // elderId实际上是老人的elderId（6位字符串），需要转换为字符串后查找
+        String elderIdStr = String.format("%06d", elderId);
+        User parentUser = userRepository.findByElderId(elderIdStr)
                 .orElseThrow(() -> new RuntimeException("老人账号ID不存在"));
         if (!"elder".equals(parentUser.getRole())) {
             throw new RuntimeException("指定的ID不是老人账号");
         }
         
-        user.setParentId(parentId);
+        // 使用老人的数据库ID作为parentId
+        user.setParentId(parentUser.getId());
+        user = userRepository.save(user);
+        
+        return UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId(), user.getElderId());
+    }
+
+    @Transactional
+    public UserInfo unbindElder(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("user not found"));
+        
+        user.setParentId(null);
         user = userRepository.save(user);
         
         return UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId(), user.getElderId());

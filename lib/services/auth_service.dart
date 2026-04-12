@@ -110,17 +110,21 @@ class AuthService {
 
   Future<AuthResult?> me() async {
     if (_token == null) return null;
-    if (_token == _offlineToken) {
-      final offline = await _loadOfflineAccount();
-      if (offline != null) {
-        return AuthResult(token: _offlineToken, username: offline['username']!, displayName: offline['display']!, id: 1, role: 'elder', elderId: '123456');
-      }
-    }
+    
+    // 无论是否是离线token，都先尝试连接后端
     try {
       final resp = await http.get(_u('/auth/me'), headers: _headers()).timeout(const Duration(seconds: 5));
-      if (resp.statusCode != 200) return null;
+      if (resp.statusCode != 200) {
+        // 如果后端返回错误，尝试离线模式
+        return _getOfflineResult();
+      }
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
-      final user = data['user'] as Map<String, dynamic>? ?? {};
+      // /auth/me 直接返回 UserInfo 对象，而不是包含 user 的结构
+      final user = data;
+      if (kDebugMode) {
+        print('me() response: $data');
+        print('elderId from me(): ${user['elderId']}');
+      }
       return AuthResult(
         token: _token!,
         username: user['username'] as String? ?? '',
@@ -130,14 +134,21 @@ class AuthService {
         parentId: user['parentId'] as int?,
         elderId: user['elderId'] as String?,
       );
-    } catch (_) {
-      // 离线时返回本地用户
-      final offline = await _loadOfflineAccount();
-      if (offline != null) {
-        return AuthResult(token: _token!, username: offline['username']!, displayName: offline['display']!, id: 1, role: 'elder', elderId: '123456');
+    } catch (e) {
+      if (kDebugMode) {
+        print('me() error: $e');
       }
-      return null;
+      // 离线时返回本地用户
+      return _getOfflineResult();
     }
+  }
+
+  Future<AuthResult?> _getOfflineResult() async {
+    final offline = await _loadOfflineAccount();
+    if (offline != null) {
+      return AuthResult(token: _token!, username: offline['username']!, displayName: offline['display']!, id: 1, role: 'elder', elderId: '123456');
+    }
+    return null;
   }
 
   Future<void> logout() async {

@@ -110,4 +110,26 @@ public class AuthController {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
         }
     }
+
+    @PutMapping("/unbind-elder")
+    public ResponseEntity<?> unbindElder(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("unauthorized"));
+        }
+
+        String token = authHeader.substring(7);
+        Optional<Long> userIdOpt = authService.getUserIdByToken(token);
+        if (!userIdOpt.isPresent()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("unauthorized"));
+        }
+
+        try {
+            UserInfo updatedUser = authService.unbindElder(userIdOpt.get());
+            return ResponseEntity.ok(ApiResponse.success(updatedUser, "解绑成功"));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+        }
+    }
 }

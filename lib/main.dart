@@ -252,16 +252,30 @@ class _GuardianAppState extends State<GuardianApp> {
                 },
               ),
             if (isAuthed && currentUserRole == 'child')
-              ListTile(
-                leading: const Icon(Icons.family_restroom),
-                title: Text(currentUserId != null ? '绑定老人ID' : '绑定老人ID'),
-                subtitle: currentUserId != null && elderName != null 
-                    ? Text('已绑定: $elderName') 
-                    : const Text('未绑定老人ID'),
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  _showBindElderDialog(ctx);
-                },
+              Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.family_restroom),
+                    title: const Text('绑定老人ID'),
+                    subtitle: elderName != null 
+                        ? Text('已绑定: $elderName') 
+                        : const Text('未绑定老人ID'),
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      _showBindElderDialog(ctx);
+                    },
+                  ),
+                  if (elderName != null)
+                    ListTile(
+                      leading: const Icon(Icons.remove_circle),
+                      title: const Text('解绑老人ID'),
+                      subtitle: const Text('解除与当前老人的绑定'),
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _showUnbindConfirmDialog(ctx);
+                      },
+                    ),
+                ],
               ),
             if (isAuthed)
               ListTile(
@@ -376,6 +390,44 @@ class _GuardianAppState extends State<GuardianApp> {
     );
   }
 
+  void _showUnbindConfirmDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('确认解绑'),
+        content: const Text('确定要解除与当前老人的绑定吗？解绑后将无法查看老人状态。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                final result = await api.unbindElder();
+                if (result != null) {
+                  setState(() {
+                    elderName = null;
+                    currentElderId = null;
+                  });
+                  Navigator.of(dialogCtx).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('解绑成功')),
+                  );
+                }
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('解绑失败: $e')),
+                );
+              }
+            },
+            child: const Text('确认解绑'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -392,7 +444,7 @@ class _GuardianAppState extends State<GuardianApp> {
         appBar: AppBar(
           title: Text(isAuthed 
               ? currentUserRole == 'child' 
-                ? '安心儿 · ${currentUser ?? '已登录'} (【${elderName ?? '老人'}】的监护人)' 
+                ? '安心儿 · ${currentUser ?? '已登录'} (${elderName ?? '老人'}的监护人)' 
                 : '安心儿 · ${currentUser ?? '已登录'}' 
               : '安心儿 · 安全守护'),
           actions: [
