@@ -1,15 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/reminder.dart';
 import '../models/contact.dart';
 
-class ApiClient {// 后端API客户端
+class ApiClient {
   ApiClient({String? baseUrl})
-      : baseUrl = baseUrl ?? const String.fromEnvironment('BACKEND_BASE_URL', defaultValue: 'http://10.0.2.2:3001');
+      : baseUrl = baseUrl ?? const String.fromEnvironment('BACKEND_BASE_URL', defaultValue: kIsWeb ? 'http://localhost:3001' : 'http://10.0.2.2:3001');
 
   final String baseUrl;
   String? _token;
@@ -176,6 +177,53 @@ class ApiClient {// 后端API客户端
     } catch (e) {
       print('unbindElder error: $e');
       throw e;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getElderLocation() async {
+    if (!enabled) return null;
+    try {
+      final resp = await http.get(_u('/child/elder/location'), headers: _headers()).timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) throw HttpException('get elder location failed ${resp.statusCode}');
+      return jsonDecode(resp.body) as Map<String, dynamic>;
+    } catch (e) {
+      print('getElderLocation error: $e');
+      return null;
+    }
+  }
+
+  Future<List<dynamic>?> getElderSosLogs() async {
+    if (!enabled) return null;
+    try {
+      final resp = await http.get(_u('/child/elder/sos-logs'), headers: _headers()).timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) throw HttpException('get elder sos logs failed ${resp.statusCode}');
+      return jsonDecode(resp.body) as List<dynamic>;
+    } catch (e) {
+      print('getElderSosLogs error: $e');
+      return null;
+    }
+  }
+
+  Future<List<dynamic>?> getElderReminders() async {
+    if (!enabled) return null;
+    try {
+      final resp = await http.get(_u('/child/elder/reminders'), headers: _headers()).timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) throw HttpException('get elder reminders failed ${resp.statusCode}');
+      return jsonDecode(resp.body) as List<dynamic>;
+    } catch (e) {
+      print('getElderReminders error: $e');
+      return null;
+    }
+  }
+
+  Future<bool> updateLocation(String location) async {
+    if (!enabled) return false;
+    try {
+      final resp = await http.put(_u('/auth/update-location'), headers: _headers(), body: jsonEncode({'location': location})).timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (e) {
+      print('updateLocation error: $e');
+      return false;
     }
   }
 

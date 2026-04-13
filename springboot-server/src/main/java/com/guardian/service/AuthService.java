@@ -162,5 +162,17 @@ public class AuthService {
         return UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId(), user.getElderId());
     }
 
+    @Transactional
+    public UserInfo updateLocation(Long userId, String location) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("user not found"));
+        
+        user.setLastLocation(location);
+        user.setLastLocationUpdate(java.time.LocalDateTime.now());
+        user = userRepository.save(user);
+        
+        return UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId(), user.getElderId());
+    }
+
     public record AuthResult(String token, UserInfo user) {}
 }

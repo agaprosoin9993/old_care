@@ -132,4 +132,29 @@ public class AuthController {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
         }
     }
+
+    @PutMapping("/update-location")
+    public ResponseEntity<?> updateLocation(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody java.util.Map<String, String> body) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("unauthorized"));
+        }
+
+        String token = authHeader.substring(7);
+        Optional<Long> userIdOpt = authService.getUserIdByToken(token);
+        if (!userIdOpt.isPresent()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("unauthorized"));
+        }
+
+        try {
+            String location = body.get("location");
+            UserInfo updatedUser = authService.updateLocation(userIdOpt.get(), location);
+            return ResponseEntity.ok(ApiResponse.success(updatedUser, "位置更新成功"));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+        }
+    }
 }

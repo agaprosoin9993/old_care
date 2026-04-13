@@ -40,4 +40,10 @@ public class User {
 
     @Column(name = "elder_id", length = 6, unique = true)
     private String elderId; // 6-digit random unique ID for elder users
+
+    @Column(name = "last_location", length = 500)
+    private String lastLocation;
+
+    @Column(name = "last_location_update")
+    private LocalDateTime lastLocationUpdate;
 }

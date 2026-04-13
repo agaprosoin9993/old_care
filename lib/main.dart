@@ -4,11 +4,13 @@ import 'features/safety/safety_page.dart';
 import 'features/sos/sos_page.dart';
 import 'features/auth/auth_page.dart';
 import 'features/family/family_page.dart';
+import 'features/child/child_home_page.dart';
 import 'models/reminder.dart';
 import 'models/contact.dart';
 import 'services/api_client.dart';
 import 'services/auth_service.dart';
 import 'services/location_service.dart';
+import 'services/heart_rate_service.dart';
 
 void main() {
   runApp(const GuardianApp());
@@ -27,6 +29,7 @@ class _GuardianAppState extends State<GuardianApp> {
   final ApiClient api = ApiClient();
   final AuthService authService = AuthService();
   final LocationService locationService = LocationService();
+  final HeartRateService heartRateService = HeartRateService();
   final bool authRequired = const bool.fromEnvironment('REQUIRE_AUTH', defaultValue: false);// 是否需要认证
   int _tabIndex = 0;
   String emergencyContact = '儿子 138-0000-0000';
@@ -34,8 +37,7 @@ class _GuardianAppState extends State<GuardianApp> {
   DateTime? lastLocationUpdate;
   bool locationSharing = true;
   bool fallDetection = true;
-  bool geoFenceEnabled = true;
-  double geoFenceRadius = 500; // 米
+  bool heartRateMonitoring = true;
   DateTime? lastHelpTime;
   bool isAuthed = false;// 是否已认证
   String? currentUser;
@@ -455,48 +457,52 @@ class _GuardianAppState extends State<GuardianApp> {
             )
           ],
         ),
-        body: SafeArea(//安全区域，防止内容被状态栏遮挡
+        body: SafeArea(
           child: authRequired && !isAuthed
-              ? AuthPage(//登录/注册页面
+              ? AuthPage(
                   onAuthed: (r) => _onAuthed(r.token, r.username, r.displayName, userId: r.id, role: r.role, elderId: r.elderId, parentId: r.parentId),
                   onCancel: null,
                 )
-              : IndexedStack(
-                  index: _tabIndex,
-                  children: [
-                    SosPage(
-                      lastHelpTime: lastHelpTime,
-                      contact: emergencyContact,
-                      onSOS: () => _triggerSOS(context),
-                      onContactEdited: _updateContact,
-                      locationSharing: locationSharing,
-                      onLocationToggle: (v) => setState(() => locationSharing = v),
-                      location: currentLocation,
-                      mapPreviewUrl: mapPreviewUrl,
-                      isLocating: _locating,
-                      onLocationRefresh: _refreshLocation,
-                      lastLocationUpdate: lastLocationUpdate,
+              : currentUserRole == 'child'
+                  ? ChildHomePage(
+                      api: api,
+                      elderName: elderName,
+                      onUnbind: () => _showUnbindConfirmDialog(_navigatorKey.currentContext!),
+                    )
+                  : IndexedStack(
+                      index: _tabIndex,
+                      children: [
+                        SosPage(
+                          lastHelpTime: lastHelpTime,
+                          contact: emergencyContact,
+                          onSOS: () => _triggerSOS(context),
+                          onContactEdited: _updateContact,
+                          locationSharing: locationSharing,
+                          onLocationToggle: (v) => setState(() => locationSharing = v),
+                          location: currentLocation,
+                          mapPreviewUrl: mapPreviewUrl,
+                          isLocating: _locating,
+                          onLocationRefresh: _refreshLocation,
+                          lastLocationUpdate: lastLocationUpdate,
+                        ),
+                        ReminderPage(
+                          reminders: reminders,
+                          onToggle: _toggleReminder,
+                          onAdd: _addReminder,
+                          onDelete: _removeReminder,
+                        ),
+                        SafetyPage(
+                          fallDetection: fallDetection,
+                          onFallToggle: (v) => setState(() => fallDetection = v),
+                          heartRateMonitoring: heartRateMonitoring,
+                          onHeartRateToggle: (v) => setState(() => heartRateMonitoring = v),
+                          heartRateService: heartRateService,
+                        ),
+                        FamilyPage(api: api, isAuthed: isAuthed),
+                      ],
                     ),
-                    ReminderPage(
-                      reminders: reminders,
-                      onToggle: _toggleReminder,
-                      onAdd: _addReminder,
-                      onDelete: _removeReminder,
-                    ),
-                    SafetyPage(
-                      fallDetection: fallDetection,
-                      onFallToggle: (v) => setState(() => fallDetection = v),
-                      geoFenceEnabled: geoFenceEnabled,
-                      onGeoFenceToggle: (v) => setState(() => geoFenceEnabled = v),
-                      geoFenceRadius: geoFenceRadius,
-                      onGeoFenceRadius: (v) => setState(() => geoFenceRadius = v),
-                      location: currentLocation,
-                    ),
-                    FamilyPage(api: api, isAuthed: isAuthed),
-                  ],
-                ),
         ),
-        bottomNavigationBar: NavigationBar(
+        bottomNavigationBar: currentUserRole == 'child' ? null : NavigationBar(
           selectedIndex: _tabIndex,
           destinations: const [
             NavigationDestination(icon: Icon(Icons.sos), label: '求助'),
@@ -504,7 +510,7 @@ class _GuardianAppState extends State<GuardianApp> {
             NavigationDestination(icon: Icon(Icons.shield), label: '守护设置'),
             NavigationDestination(icon: Icon(Icons.family_restroom), label: '家属'),
           ],
-          onDestinationSelected: (i) => setState(() => _tabIndex = i),// 切换导航栏项
+          onDestinationSelected: (i) => setState(() => _tabIndex = i),
         ),
       ),
     );

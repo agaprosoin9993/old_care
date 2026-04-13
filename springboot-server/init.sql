@@ -10,9 +10,16 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(50) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     display_name VARCHAR(100) DEFAULT '',
+    role VARCHAR(20) NOT NULL DEFAULT 'elder',
+    parent_id BIGINT DEFAULT NULL,
+    elder_id VARCHAR(6) DEFAULT NULL UNIQUE,
+    last_location VARCHAR(500) DEFAULT NULL,
+    last_location_update TIMESTAMP NULL DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_username (username)
+    INDEX idx_username (username),
+    INDEX idx_elder_id (elder_id),
+    INDEX idx_parent_id (parent_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 会话表
