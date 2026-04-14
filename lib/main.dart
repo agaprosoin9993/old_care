@@ -11,6 +11,7 @@ import 'services/api_client.dart';
 import 'services/auth_service.dart';
 import 'services/location_service.dart';
 import 'services/heart_rate_service.dart';
+import 'services/notification_service.dart';
 
 void main() {
   runApp(const GuardianApp());
@@ -30,7 +31,8 @@ class _GuardianAppState extends State<GuardianApp> {
   final AuthService authService = AuthService();
   final LocationService locationService = LocationService();
   final HeartRateService heartRateService = HeartRateService();
-  final bool authRequired = const bool.fromEnvironment('REQUIRE_AUTH', defaultValue: false);// 是否需要认证
+  final NotificationService notificationService = NotificationService();
+  final bool authRequired = const bool.fromEnvironment('REQUIRE_AUTH', defaultValue: false);
   int _tabIndex = 0;
   String emergencyContact = '儿子 138-0000-0000';
   String currentLocation = '未获取';
@@ -58,13 +60,27 @@ class _GuardianAppState extends State<GuardianApp> {
   @override
   void initState() {
     super.initState();
+    _initializeServices();
     _bootstrapAuth();
     _loadRemindersFromBackend();
   }
 
-  void _triggerSOS(BuildContext context) {
+  Future<void> _initializeServices() async {
+    await notificationService.initialize();
+  }
+
+  void _triggerSOS(BuildContext context) async {
     final now = DateTime.now();
     setState(() => lastHelpTime = now);
+
+    if (currentLocation == '未获取') {
+      await _refreshLocation();
+    }
+
+    if (currentLocation != '未获取') {
+      await api.updateLocation(currentLocation);
+    }
+
     _scaffoldMessengerKey.currentState?.showSnackBar(
       SnackBar(
         content: Text('正在为您呼叫紧急联系人，并发送位置... (${_formatTime(now)})'),
@@ -110,6 +126,7 @@ class _GuardianAppState extends State<GuardianApp> {
         mapPreviewUrl = res.mapPreviewUrl;
         lastLocationUpdate = DateTime.now();
       });
+      await api.updateLocation(res.display);
     } catch (e) {
       _scaffoldMessengerKey.currentState?.showSnackBar(SnackBar(content: Text('定位失败：$e')));
     } finally {

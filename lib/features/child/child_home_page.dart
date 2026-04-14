@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../services/api_client.dart';
+import '../../services/notification_service.dart';
 import '../../models/reminder.dart';
 
 class ChildHomePage extends StatefulWidget {
@@ -18,34 +21,143 @@ class ChildHomePage extends StatefulWidget {
   State<ChildHomePage> createState() => _ChildHomePageState();
 }
 
-class _ChildHomePageState extends State<ChildHomePage> {
+class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserver {
   int _tabIndex = 0;
-  
+
   String _elderLocation = '未获取';
   DateTime? _lastLocationUpdate;
   bool _isLoadingLocation = false;
-  
+
   List<Map<String, dynamic>> _sosLogs = [];
   bool _isLoadingSos = false;
-  
+  String? _lastSosId;
+  int _unreadCount = 0;
+
   List<Reminder> _elderReminders = [];
   bool _isLoadingReminders = false;
+
+  Timer? _pollingTimer;
+  final NotificationService _notificationService = NotificationService();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initializeNotifications();
     _loadElderData();
+    _startPolling();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pollingTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadElderData();
+      _startPolling();
+    } else if (state == AppLifecycleState.paused) {
+      _pollingTimer?.cancel();
+    }
+  }
+
+  Future<void> _initializeNotifications() async {
+    await _notificationService.initialize();
+  }
+
+  void _startPolling() {
+    _pollingTimer?.cancel();
+    _pollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _pollElderData();
+    });
+  }
+
+  Future<void> _pollElderData() async {
+    await _checkSosAlerts();
+    await _checkLocationUpdate();
   }
 
   Future<void> _loadElderData() async {
-    _loadElderLocation();
-    _loadSosLogs();
-    _loadElderReminders();
+    await Future.wait([
+      _loadElderLocation(),
+      _loadSosLogs(),
+      _loadElderReminders(),
+    ]);
+    await _loadUnreadCount();
+  }
+
+  Future<void> _loadUnreadCount() async {
+    final count = await widget.api.getElderSosUnreadCount();
+    if (mounted) {
+      setState(() {
+        _unreadCount = count;
+      });
+    }
+  }
+
+  Future<void> _checkSosAlerts() async {
+    try {
+      final result = await widget.api.getElderSosLogs();
+      if (result != null && result.isNotEmpty && mounted) {
+        final latestSos = result.first as Map<String, dynamic>;
+        final latestSosId = latestSos['id'].toString();
+
+        if (_lastSosId != null && _lastSosId != latestSosId) {
+          final location = latestSos['location'] as String?;
+          await _notificationService.showSosAlert(
+            elderName: widget.elderName ?? '老人',
+            location: location,
+          );
+        }
+
+        _lastSosId = latestSosId;
+
+        setState(() {
+          _sosLogs = result.cast<Map<String, dynamic>>();
+        });
+        await _loadUnreadCount();
+      }
+    } catch (e) {
+      debugPrint('检查SOS告警失败: $e');
+    }
+  }
+
+  Future<void> _checkLocationUpdate() async {
+    try {
+      final result = await widget.api.getElderLocation();
+      if (result != null && mounted) {
+        final newLocation = result['location'] as String? ?? '未知位置';
+        final newUpdateTime = result['updatedAt'] != null
+            ? DateTime.parse(result['updatedAt'] as String)
+            : null;
+
+        if (_lastLocationUpdate != null &&
+            newUpdateTime != null &&
+            newUpdateTime.isAfter(_lastLocationUpdate!) &&
+            _elderLocation != newLocation) {
+          await _notificationService.showLocationUpdate(
+            elderName: widget.elderName ?? '老人',
+            location: newLocation,
+          );
+        }
+
+        setState(() {
+          _elderLocation = newLocation;
+          _lastLocationUpdate = newUpdateTime;
+        });
+      }
+    } catch (e) {
+      debugPrint('检查位置更新失败: $e');
+    }
   }
 
   Future<void> _loadElderLocation() async {
     setState(() => _isLoadingLocation = true);
-    
+
     try {
       final result = await widget.api.getElderLocation();
       if (result != null && mounted) {
@@ -57,7 +169,7 @@ class _ChildHomePageState extends State<ChildHomePage> {
         });
       }
     } catch (e) {
-      print('加载老人位置失败: $e');
+      debugPrint('加载老人位置失败: $e');
     } finally {
       if (mounted) {
         setState(() => _isLoadingLocation = false);
@@ -67,16 +179,19 @@ class _ChildHomePageState extends State<ChildHomePage> {
 
   Future<void> _loadSosLogs() async {
     setState(() => _isLoadingSos = true);
-    
+
     try {
       final result = await widget.api.getElderSosLogs();
       if (result != null && mounted) {
         setState(() {
           _sosLogs = result.cast<Map<String, dynamic>>();
+          if (_sosLogs.isNotEmpty) {
+            _lastSosId = _sosLogs.first['id'].toString();
+          }
         });
       }
     } catch (e) {
-      print('加载SOS日志失败: $e');
+      debugPrint('加载SOS日志失败: $e');
     } finally {
       if (mounted) {
         setState(() => _isLoadingSos = false);
@@ -86,16 +201,18 @@ class _ChildHomePageState extends State<ChildHomePage> {
 
   Future<void> _loadElderReminders() async {
     setState(() => _isLoadingReminders = true);
-    
+
     try {
       final result = await widget.api.getElderReminders();
       if (result != null && mounted) {
         setState(() {
-          _elderReminders = result.map((e) => Reminder.fromJson(e as Map<String, dynamic>)).toList();
+          _elderReminders = result
+              .map((e) => Reminder.fromJson(e as Map<String, dynamic>))
+              .toList();
         });
       }
     } catch (e) {
-      print('加载老人提醒失败: $e');
+      debugPrint('加载老人提醒失败: $e');
     } finally {
       if (mounted) {
         setState(() => _isLoadingReminders = false);
@@ -103,10 +220,48 @@ class _ChildHomePageState extends State<ChildHomePage> {
     }
   }
 
+  Future<void> _markSosAsRead(int sosId) async {
+    await widget.api.markSosAsRead(sosId);
+    setState(() {
+      final index = _sosLogs.indexWhere((log) => log['id'] == sosId);
+      if (index != -1) {
+        _sosLogs[index]['isRead'] = true;
+      }
+    });
+    await _loadUnreadCount();
+  }
+
+  Future<void> _markAllAsRead() async {
+    await widget.api.markAllSosAsRead();
+    setState(() {
+      for (var log in _sosLogs) {
+        log['isRead'] = true;
+      }
+      _unreadCount = 0;
+    });
+  }
+
   String _formatDateTime(DateTime? dt) {
     if (dt == null) return '未知';
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
-           '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatRelativeTime(DateTime? dt) {
+    if (dt == null) return '未知';
+
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+
+    if (diff.inSeconds < 60) {
+      return '刚刚';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}分钟前';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours}小时前';
+    } else {
+      return '${diff.inDays}天前';
+    }
   }
 
   @override
@@ -122,10 +277,32 @@ class _ChildHomePageState extends State<ChildHomePage> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tabIndex,
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.location_on), label: '老人位置'),
-          NavigationDestination(icon: Icon(Icons.warning), label: 'SOS告警'),
-          NavigationDestination(icon: Icon(Icons.alarm), label: '提醒事项'),
+        destinations: [
+          NavigationDestination(
+            icon: const Icon(Icons.location_on_outlined),
+            selectedIcon: const Icon(Icons.location_on),
+            label: '老人位置',
+          ),
+          NavigationDestination(
+            icon: _unreadCount > 0
+                ? Badge(
+                    label: Text(_unreadCount > 99 ? '99+' : '$_unreadCount'),
+                    child: const Icon(Icons.warning_amber_outlined),
+                  )
+                : const Icon(Icons.warning_amber_outlined),
+            selectedIcon: _unreadCount > 0
+                ? Badge(
+                    label: Text(_unreadCount > 99 ? '99+' : '$_unreadCount'),
+                    child: const Icon(Icons.warning),
+                  )
+                : const Icon(Icons.warning),
+            label: 'SOS告警',
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.alarm_outlined),
+            selectedIcon: const Icon(Icons.alarm),
+            label: '提醒事项',
+          ),
         ],
         onDestinationSelected: (i) => setState(() => _tabIndex = i),
       ),
@@ -141,57 +318,75 @@ class _ChildHomePageState extends State<ChildHomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+            _buildHeaderCard(
+              icon: Icons.location_on,
+              iconColor: Colors.blue,
+              title: '${widget.elderName ?? '老人'}的位置',
+              child: _isLoadingLocation
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.location_on, color: Colors.redAccent, size: 28),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${widget.elderName ?? '老人'}的位置',
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        Row(
+                          children: [
+                            const Icon(Icons.place, size: 20, color: Colors.grey),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _elderLocation,
+                                style: const TextStyle(fontSize: 16),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            const Icon(Icons.access_time,
+                                size: 20, color: Colors.grey),
+                            const SizedBox(width: 8),
+                            Text(
+                              '更新于 ${_formatRelativeTime(_lastLocationUpdate)}',
+                              style: const TextStyle(
+                                  fontSize: 14, color: Colors.grey),
+                            ),
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: Colors.green,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Text(
+                                    '实时同步中',
+                                    style: TextStyle(
+                                        fontSize: 12, color: Colors.green),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    if (_isLoadingLocation)
-                      const Center(child: CircularProgressIndicator())
-                    else
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.place, size: 20, color: Colors.grey),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _elderLocation,
-                                  style: const TextStyle(fontSize: 16),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              const Icon(Icons.access_time, size: 20, color: Colors.grey),
-                              const SizedBox(width: 8),
-                              Text(
-                                '更新时间: ${_formatDateTime(_lastLocationUpdate)}',
-                                style: const TextStyle(fontSize: 14, color: Colors.grey),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
-              ),
             ),
             const SizedBox(height: 16),
             if (widget.elderName == null)
@@ -210,6 +405,16 @@ class _ChildHomePageState extends State<ChildHomePage> {
                   ),
                 ),
               ),
+            const SizedBox(height: 16),
+            _buildInfoCard(
+              title: '位置同步说明',
+              icon: Icons.info_outline,
+              children: [
+                const Text('• 位置每5秒自动同步一次'),
+                const Text('• 老人端需要开启位置共享'),
+                const Text('• 位置更新时会收到通知提醒'),
+              ],
+            ),
           ],
         ),
       ),
@@ -217,51 +422,244 @@ class _ChildHomePageState extends State<ChildHomePage> {
   }
 
   Widget _buildSosTab() {
+    final recentSos = _sosLogs.where((log) {
+      final createdAt = DateTime.parse(log['createdAt'] as String);
+      return DateTime.now().difference(createdAt).inDays < 7;
+    }).toList();
+
+    final unreadSos = recentSos.where((log) => log['isRead'] != true).toList();
+
     return RefreshIndicator(
-      onRefresh: _loadSosLogs,
-      child: _isLoadingSos
-          ? const Center(child: CircularProgressIndicator())
-          : _sosLogs.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.check_circle, size: 64, color: Colors.green),
-                      const SizedBox(height: 16),
-                      Text(
-                        '${widget.elderName ?? '老人'}近期无SOS告警',
-                        style: const TextStyle(fontSize: 16, color: Colors.grey),
-                      ),
-                    ],
+      onRefresh: () async {
+        await _loadSosLogs();
+        await _loadUnreadCount();
+      },
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: _unreadCount > 0 ? Colors.red.shade50 : Colors.green.shade50,
+            child: Row(
+              children: [
+                Icon(
+                  _unreadCount > 0 ? Icons.warning : Icons.check_circle,
+                  color: _unreadCount > 0 ? Colors.red : Colors.green,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _unreadCount > 0
+                        ? '有 $_unreadCount 条未读SOS告警'
+                        : '${widget.elderName ?? '老人'}近期无SOS告警',
+                    style: TextStyle(
+                      color: _unreadCount > 0 ? Colors.red : Colors.green,
+                    ),
                   ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _sosLogs.length,
-                  itemBuilder: (context, index) {
-                    final log = _sosLogs[index];
-                    final createdAt = DateTime.parse(log['createdAt'] as String);
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        leading: const Icon(Icons.warning, color: Colors.red),
-                        title: Text('SOS求救 - ${_formatDateTime(createdAt)}'),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+                if (_unreadCount > 0)
+                  TextButton(
+                    onPressed: _markAllAsRead,
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red,
+                    ),
+                    child: const Text('全部已读'),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _isLoadingSos
+                ? const Center(child: CircularProgressIndicator())
+                : recentSos.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text('位置: ${log['location'] ?? '未知'}'),
-                            Text('联系人: ${log['contact'] ?? '未知'}'),
+                            const Icon(Icons.check_circle,
+                                size: 64, color: Colors.green),
+                            const SizedBox(height: 16),
+                            Text(
+                              '${widget.elderName ?? '老人'}近期无SOS告警',
+                              style: const TextStyle(
+                                  fontSize: 16, color: Colors.grey),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              '老人触发SOS时您将收到实时通知',
+                              style:
+                                  TextStyle(fontSize: 14, color: Colors.grey),
+                            ),
                           ],
                         ),
-                        isThreeLine: true,
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: recentSos.length,
+                        itemBuilder: (context, index) {
+                          final log = recentSos[index];
+                          final createdAt =
+                              DateTime.parse(log['createdAt'] as String);
+                          final isRead = log['isRead'] == true;
+
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            color: !isRead ? Colors.red.shade50 : null,
+                            child: ListTile(
+                              leading: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: !isRead
+                                      ? Colors.red.shade100
+                                      : Colors.grey.shade100,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  Icons.warning,
+                                  color: !isRead ? Colors.red : Colors.grey,
+                                ),
+                              ),
+                              title: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'SOS求救 - ${_formatDateTime(createdAt)}',
+                                      style: TextStyle(
+                                        color: !isRead ? Colors.red : null,
+                                        fontWeight: !isRead ? FontWeight.bold : null,
+                                      ),
+                                    ),
+                                  ),
+                                  if (!isRead)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: const Text(
+                                        '未读',
+                                        style: TextStyle(
+                                            color: Colors.white, fontSize: 12),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('位置: ${log['location'] ?? '未知'}'),
+                                  Text('联系人: ${log['contact'] ?? '未知'}'),
+                                ],
+                              ),
+                              isThreeLine: true,
+                              trailing: !isRead
+                                  ? TextButton(
+                                      onPressed: () => _markSosAsRead(log['id'] as int),
+                                      child: const Text('标记已读'),
+                                    )
+                                  : const Icon(Icons.check_circle, color: Colors.green),
+                              onTap: () => _showSosDetailDialog(log),
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSosDetailDialog(Map<String, dynamic> log) {
+    final createdAt = DateTime.parse(log['createdAt'] as String);
+    final isRead = log['isRead'] == true;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.warning, color: Colors.red),
+            const SizedBox(width: 8),
+            const Text('SOS告警详情'),
+            if (!isRead)
+              Container(
+                margin: const EdgeInsets.only(left: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(12),
                 ),
+                child: const Text(
+                  '未读',
+                  style: TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildDetailRow(Icons.access_time, '时间', _formatDateTime(createdAt)),
+            const SizedBox(height: 12),
+            _buildDetailRow(Icons.location_on, '位置', log['location'] ?? '未知'),
+            const SizedBox(height: 12),
+            _buildDetailRow(Icons.person, '联系人', log['contact'] ?? '未知'),
+            if (log['note'] != null && log['note'].toString().isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _buildDetailRow(Icons.note, '备注', log['note']),
+            ],
+          ],
+        ),
+        actions: [
+          if (!isRead)
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _markSosAsRead(log['id'] as int);
+              },
+              child: const Text('标记已读'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: Colors.grey),
+        const SizedBox(width: 8),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 14),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
   Widget _buildRemindersTab() {
+    final completedReminders =
+        _elderReminders.where((r) => r.completed).toList();
+    final pendingReminders =
+        _elderReminders.where((r) => !r.completed).toList();
+
     return RefreshIndicator(
       onRefresh: _loadElderReminders,
       child: _isLoadingReminders
@@ -280,34 +678,156 @@ class _ChildHomePageState extends State<ChildHomePage> {
                     ],
                   ),
                 )
-              : ListView.builder(
+              : ListView(
                   padding: const EdgeInsets.all(16),
-                  itemCount: _elderReminders.length,
-                  itemBuilder: (context, index) {
-                    final reminder = _elderReminders[index];
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        leading: Icon(
-                          reminder.completed ? Icons.check_circle : Icons.alarm,
-                          color: reminder.completed ? Colors.green : Colors.orange,
-                        ),
-                        title: Text(
-                          reminder.title,
-                          style: TextStyle(
-                            decoration: reminder.completed ? TextDecoration.lineThrough : null,
-                          ),
-                        ),
-                        subtitle: Text(
-                          '${reminder.formattedTime} ${reminder.repeating ? '(每日重复)' : ''}',
-                        ),
-                        trailing: reminder.completed
-                            ? const Text('已完成', style: TextStyle(color: Colors.green))
-                            : const Text('未完成', style: TextStyle(color: Colors.orange)),
-                      ),
-                    );
-                  },
+                  children: [
+                    if (pendingReminders.isNotEmpty) ...[
+                      _buildSectionHeader('待完成', pendingReminders.length),
+                      ...pendingReminders.map((r) => _buildReminderCard(r)),
+                      const SizedBox(height: 16),
+                    ],
+                    if (completedReminders.isNotEmpty) ...[
+                      _buildSectionHeader('已完成', completedReminders.length),
+                      ...completedReminders.map((r) => _buildReminderCard(r)),
+                    ],
+                  ],
                 ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, int count) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '$count',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReminderCard(Reminder reminder) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: reminder.completed
+                ? Colors.green.shade50
+                : Colors.orange.shade50,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            reminder.completed ? Icons.check : Icons.alarm,
+            color: reminder.completed ? Colors.green : Colors.orange,
+          ),
+        ),
+        title: Text(
+          reminder.title,
+          style: TextStyle(
+            decoration:
+                reminder.completed ? TextDecoration.lineThrough : null,
+          ),
+        ),
+        subtitle: Text(
+          '${reminder.formattedTime} ${reminder.repeating ? '(每日重复)' : ''}',
+        ),
+        trailing: reminder.completed
+            ? const Text('已完成',
+                style: TextStyle(color: Colors.green))
+            : const Text('待完成',
+                style: TextStyle(color: Colors.orange)),
+      ),
+    );
+  }
+
+  Widget _buildHeaderCard({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required Widget child,
+  }) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: iconColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: iconColor, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoCard({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 20, color: Colors.grey),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ...children,
+          ],
+        ),
+      ),
     );
   }
 }

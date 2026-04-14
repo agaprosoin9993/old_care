@@ -10,4 +10,6 @@ import java.util.List;
 public interface SosLogRepository extends JpaRepository<SosLog, Long> {
     List<SosLog> findByUserIdOrderByCreatedAtDesc(Long userId);
     List<SosLog> findByUserIdIsNullOrUserIdOrderByCreatedAtDesc(Long userId);
+    List<SosLog> findByUserIdAndIsReadFalse(Long userId);
+    int countByUserIdAndIsReadFalse(Long userId);
 }

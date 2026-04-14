@@ -31,6 +31,27 @@ public class SosService {
         sosLog.setContact(contact != null ? contact : "");
         sosLog.setNote(note != null ? note : "");
         sosLog.setUserId(userId);
+        sosLog.setIsRead(false);
         return sosLogRepository.save(sosLog);
+    }
+
+    @Transactional
+    public void markAsRead(Long sosLogId) {
+        sosLogRepository.findById(sosLogId).ifPresent(log -> {
+            log.setIsRead(true);
+            sosLogRepository.save(log);
+        });
+    }
+
+    @Transactional
+    public void markAllAsRead(Long userId) {
+        List<SosLog> unreadLogs = sosLogRepository.findByUserIdAndIsReadFalse(userId);
+        unreadLogs.forEach(log -> log.setIsRead(true));
+        sosLogRepository.saveAll(unreadLogs);
+    }
+
+    public int getUnreadCount(Long userId) {
+        if (userId == null) return 0;
+        return sosLogRepository.countByUserIdAndIsReadFalse(userId);
     }
 }

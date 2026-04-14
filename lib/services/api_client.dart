@@ -227,6 +227,41 @@ class ApiClient {
     }
   }
 
+  Future<int> getElderSosUnreadCount() async {
+    if (!enabled) return 0;
+    try {
+      final resp = await http.get(_u('/child/elder/sos-unread-count'), headers: _headers()).timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) throw HttpException('get sos unread count failed ${resp.statusCode}');
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      return data['count'] as int? ?? 0;
+    } catch (e) {
+      print('getElderSosUnreadCount error: $e');
+      return 0;
+    }
+  }
+
+  Future<bool> markSosAsRead(int sosId) async {
+    if (!enabled) return false;
+    try {
+      final resp = await http.put(_u('/child/elder/sos-logs/$sosId/read'), headers: _headers()).timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (e) {
+      print('markSosAsRead error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> markAllSosAsRead() async {
+    if (!enabled) return false;
+    try {
+      final resp = await http.put(_u('/child/elder/sos-logs/read-all'), headers: _headers()).timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (e) {
+      print('markAllSosAsRead error: $e');
+      return false;
+    }
+  }
+
   /// ---------------- 离线联系人存储 ----------------
   Future<List<Contact>> _loadOfflineContacts() async {
     final prefs = await SharedPreferences.getInstance();

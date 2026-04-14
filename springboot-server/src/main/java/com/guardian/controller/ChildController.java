@@ -29,7 +29,7 @@ public class ChildController {
 
     @GetMapping("/elder/location")
     public ResponseEntity<?> getElderLocation(HttpServletRequest request) {
-        Long userId = authHelper.getTargetUserId(request);
+        Long userId = authHelper.getUserId(request);
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("unauthorized"));
@@ -72,7 +72,7 @@ public class ChildController {
 
     @GetMapping("/elder/sos-logs")
     public ResponseEntity<?> getElderSosLogs(HttpServletRequest request) {
-        Long userId = authHelper.getTargetUserId(request);
+        Long userId = authHelper.getUserId(request);
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("unauthorized"));
@@ -101,7 +101,7 @@ public class ChildController {
 
     @GetMapping("/elder/reminders")
     public ResponseEntity<?> getElderReminders(HttpServletRequest request) {
-        Long userId = authHelper.getTargetUserId(request);
+        Long userId = authHelper.getUserId(request);
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("unauthorized"));
@@ -126,5 +126,87 @@ public class ChildController {
 
         List<Reminder> reminders = reminderService.getReminders(parentId);
         return ResponseEntity.ok(reminders);
+    }
+
+    @GetMapping("/elder/sos-unread-count")
+    public ResponseEntity<?> getElderSosUnreadCount(HttpServletRequest request) {
+        Long userId = authHelper.getUserId(request);
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("unauthorized"));
+        }
+
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("user not found"));
+        }
+
+        User user = userOpt.get();
+        if (!"child".equals(user.getRole())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("only child can access this api"));
+        }
+
+        Long parentId = user.getParentId();
+        if (parentId == null) {
+            return ResponseEntity.ok(Map.of("count", 0));
+        }
+
+        int count = sosService.getUnreadCount(parentId);
+        return ResponseEntity.ok(Map.of("count", count));
+    }
+
+    @PutMapping("/elder/sos-logs/{sosId}/read")
+    public ResponseEntity<?> markSosAsRead(
+            @PathVariable Long sosId,
+            HttpServletRequest request) {
+        Long userId = authHelper.getUserId(request);
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("unauthorized"));
+        }
+
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("user not found"));
+        }
+
+        User user = userOpt.get();
+        if (!"child".equals(user.getRole())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("only child can access this api"));
+        }
+
+        sosService.markAsRead(sosId);
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
+    @PutMapping("/elder/sos-logs/read-all")
+    public ResponseEntity<?> markAllSosAsRead(HttpServletRequest request) {
+        Long userId = authHelper.getUserId(request);
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("unauthorized"));
+        }
+
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("user not found"));
+        }
+
+        User user = userOpt.get();
+        if (!"child".equals(user.getRole())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("only child can access this api"));
+        }
+
+        Long parentId = user.getParentId();
+        if (parentId != null) {
+            sosService.markAllAsRead(parentId);
+        }
+        return ResponseEntity.ok(Map.of("success", true));
     }
 }
