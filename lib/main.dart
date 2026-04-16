@@ -12,6 +12,7 @@ import 'services/auth_service.dart';
 import 'services/location_service.dart';
 import 'services/heart_rate_service.dart';
 import 'services/notification_service.dart';
+import 'services/fall_detection_service.dart';
 
 void main() {
   runApp(const GuardianApp());
@@ -31,6 +32,7 @@ class _GuardianAppState extends State<GuardianApp> {
   final AuthService authService = AuthService();
   final LocationService locationService = LocationService();
   final HeartRateService heartRateService = HeartRateService();
+  final FallDetectionService fallDetectionService = FallDetectionService();
   final NotificationService notificationService = NotificationService();
   final bool authRequired = const bool.fromEnvironment('REQUIRE_AUTH', defaultValue: false);
   int _tabIndex = 0;
@@ -51,8 +53,8 @@ class _GuardianAppState extends State<GuardianApp> {
   bool _locating = false;
 
   final List<Reminder> reminders = [
-    Reminder(title: '早上8:00 吃降压药', time: const TimeOfDay(hour: 8, minute: 0), repeating: true),
-    Reminder(title: '晚上20:00 测血压', time: const TimeOfDay(hour: 20, minute: 0), repeating: false),
+    Reminder(title: '早上8:00 吃降压药', time: const TimeOfDay(hour: 8, minute: 0), repeatType: RepeatType.daily),
+    Reminder(title: '晚上20:00 测血压', time: const TimeOfDay(hour: 20, minute: 0), repeatType: RepeatType.once),
   ];
 
   List<Contact> family = [];
@@ -102,7 +104,6 @@ class _GuardianAppState extends State<GuardianApp> {
         setState(() {
           item.id = saved.id;
           item.completed = saved.completed;
-          item.repeating = saved.repeating;
         });
       }
     }).catchError((_) {});
@@ -112,6 +113,16 @@ class _GuardianAppState extends State<GuardianApp> {
     setState(() => reminders.remove(item));
     if (item.id != null) {
       api.deleteReminder(item.id!).catchError((_) => false);
+    }
+  }
+
+  void _editReminder(Reminder item) {
+    final index = reminders.indexWhere((r) => r.id == item.id);
+    if (index != -1) {
+      setState(() {
+        reminders[index] = item;
+      });
+      api.updateReminder(item).catchError((_) => null);
     }
   }
 
@@ -507,6 +518,7 @@ class _GuardianAppState extends State<GuardianApp> {
                           onToggle: _toggleReminder,
                           onAdd: _addReminder,
                           onDelete: _removeReminder,
+                          onEdit: _editReminder,
                         ),
                         SafetyPage(
                           fallDetection: fallDetection,
@@ -514,6 +526,8 @@ class _GuardianAppState extends State<GuardianApp> {
                           heartRateMonitoring: heartRateMonitoring,
                           onHeartRateToggle: (v) => setState(() => heartRateMonitoring = v),
                           heartRateService: heartRateService,
+                          fallDetectionService: fallDetectionService,
+                          onFallDetected: () => _triggerSOS(context),
                         ),
                         FamilyPage(api: api, isAuthed: isAuthed),
                       ],

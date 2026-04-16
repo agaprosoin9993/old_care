@@ -46,7 +46,9 @@ public class ReminderController {
                 reminderRequest.getTitle(),
                 reminderRequest.getTime(),
                 reminderRequest.getRepeating(),
-                reminderRequest.getCompleted()
+                reminderRequest.getWeekdays(),
+                reminderRequest.getCompleted(),
+                reminderRequest.getEnabled()
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(reminder);
     }
@@ -68,7 +70,9 @@ public class ReminderController {
                     reminderRequest.getTitle(),
                     reminderRequest.getTime(),
                     reminderRequest.getRepeating(),
-                    reminderRequest.getCompleted()
+                    reminderRequest.getWeekdays(),
+                    reminderRequest.getCompleted(),
+                    reminderRequest.getEnabled()
             );
             return ResponseEntity.ok(reminder);
         } catch (RuntimeException e) {

@@ -241,6 +241,26 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
     });
   }
 
+  Future<void> _deleteSosLog(int sosId) async {
+    final success = await widget.api.deleteSosLog(sosId);
+    if (success) {
+      setState(() {
+        _sosLogs.removeWhere((log) => log['id'] == sosId);
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已删除SOS记录')),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('删除失败，请重试')),
+        );
+      }
+    }
+  }
+
   String _formatDateTime(DateTime? dt) {
     if (dt == null) return '未知';
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
@@ -427,8 +447,6 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
       return DateTime.now().difference(createdAt).inDays < 7;
     }).toList();
 
-    final unreadSos = recentSos.where((log) => log['isRead'] != true).toList();
-
     return RefreshIndicator(
       onRefresh: () async {
         await _loadSosLogs();
@@ -502,65 +520,122 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
                               DateTime.parse(log['createdAt'] as String);
                           final isRead = log['isRead'] == true;
 
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            color: !isRead ? Colors.red.shade50 : null,
-                            child: ListTile(
-                              leading: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: !isRead
-                                      ? Colors.red.shade100
-                                      : Colors.grey.shade100,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Icon(
-                                  Icons.warning,
-                                  color: !isRead ? Colors.red : Colors.grey,
-                                ),
+                          return Dismissible(
+                            key: Key('sos_${log['id']}'),
+                            direction: isRead
+                                ? DismissDirection.endToStart
+                                : DismissDirection.none,
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              margin: const EdgeInsets.only(bottom: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade400,
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                              title: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'SOS求救 - ${_formatDateTime(createdAt)}',
-                                      style: TextStyle(
-                                        color: !isRead ? Colors.red : null,
-                                        fontWeight: !isRead ? FontWeight.bold : null,
-                                      ),
+                              child: const Icon(
+                                Icons.delete,
+                                color: Colors.white,
+                                size: 32,
+                              ),
+                            ),
+                            confirmDismiss: (direction) async {
+                              return await showDialog<bool>(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  title: const Text('确认删除'),
+                                  content: const Text('确定要删除这条SOS告警记录吗？'),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.of(context).pop(false),
+                                      child: const Text('取消'),
                                     ),
+                                    TextButton(
+                                      onPressed: () => Navigator.of(context).pop(true),
+                                      style: TextButton.styleFrom(foregroundColor: Colors.red),
+                                      child: const Text('删除'),
+                                    ),
+                                  ],
+                                ),
+                              ) ?? false;
+                            },
+                            onDismissed: (direction) async {
+                              await _deleteSosLog(log['id'] as int);
+                            },
+                            child: Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              color: !isRead ? Colors.red.shade50 : null,
+                              child: ListTile(
+                                leading: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: !isRead
+                                        ? Colors.red.shade100
+                                        : Colors.grey.shade100,
+                                    shape: BoxShape.circle,
                                   ),
-                                  if (!isRead)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.red,
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: const Text(
-                                        '未读',
+                                  child: Icon(
+                                    Icons.warning,
+                                    color: !isRead ? Colors.red : Colors.grey,
+                                  ),
+                                ),
+                                title: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        'SOS求救 - ${_formatDateTime(createdAt)}',
                                         style: TextStyle(
-                                            color: Colors.white, fontSize: 12),
+                                          color: !isRead ? Colors.red : null,
+                                          fontWeight: !isRead ? FontWeight.bold : null,
+                                        ),
                                       ),
                                     ),
-                                ],
+                                    if (!isRead)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red,
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: const Text(
+                                          '未读',
+                                          style: TextStyle(
+                                              color: Colors.white, fontSize: 12),
+                                        ),
+                                      ),
+                                    if (isRead)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade200,
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: const Text(
+                                          '左滑删除',
+                                          style: TextStyle(
+                                              color: Colors.grey, fontSize: 11),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('位置: ${log['location'] ?? '未知'}'),
+                                    Text('联系人: ${log['contact'] ?? '未知'}'),
+                                  ],
+                                ),
+                                isThreeLine: true,
+                                trailing: !isRead
+                                    ? TextButton(
+                                        onPressed: () => _markSosAsRead(log['id'] as int),
+                                        child: const Text('标记已读'),
+                                      )
+                                    : const Icon(Icons.check_circle, color: Colors.green),
+                                onTap: () => _showSosDetailDialog(log),
                               ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('位置: ${log['location'] ?? '未知'}'),
-                                  Text('联系人: ${log['contact'] ?? '未知'}'),
-                                ],
-                              ),
-                              isThreeLine: true,
-                              trailing: !isRead
-                                  ? TextButton(
-                                      onPressed: () => _markSosAsRead(log['id'] as int),
-                                      child: const Text('标记已读'),
-                                    )
-                                  : const Icon(Icons.check_circle, color: Colors.green),
-                              onTap: () => _showSosDetailDialog(log),
                             ),
                           );
                         },
@@ -749,7 +824,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
           ),
         ),
         subtitle: Text(
-          '${reminder.formattedTime} ${reminder.repeating ? '(每日重复)' : ''}',
+          '${reminder.formattedTime} ${reminder.repeatType == RepeatType.daily ? '(每日重复)' : reminder.repeatLabel}',
         ),
         trailing: reminder.completed
             ? const Text('已完成',

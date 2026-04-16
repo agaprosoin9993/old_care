@@ -23,10 +23,16 @@ public class Reminder {
     private String time;
 
     @Column(nullable = false)
-    private Boolean repeating = true;
+    private Integer repeating = 1;
+
+    @Column(name = "weekdays", length = 20)
+    private String weekdays;
 
     @Column(nullable = false)
     private Boolean completed = false;
+
+    @Column(nullable = false)
+    private Boolean enabled = true;
 
     @Column(name = "user_id")
     private Long userId;

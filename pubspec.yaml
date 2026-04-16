@@ -37,6 +37,7 @@ dependencies:
   camera: ^0.11.0
   flutter_local_notifications: ^18.0.0
   timezone: ^0.9.4
+  sensors_plus: ^6.0.1
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

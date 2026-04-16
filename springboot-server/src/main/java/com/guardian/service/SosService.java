@@ -54,4 +54,21 @@ public class SosService {
         if (userId == null) return 0;
         return sosLogRepository.countByUserIdAndIsReadFalse(userId);
     }
+
+    @Transactional
+    public boolean deleteSosLog(Long sosLogId, Long userId) {
+        var sosLogOpt = sosLogRepository.findById(sosLogId);
+        if (sosLogOpt.isEmpty()) {
+            return false;
+        }
+        var sosLog = sosLogOpt.get();
+        if (!sosLog.getIsRead()) {
+            return false;
+        }
+        if (!sosLog.getUserId().equals(userId)) {
+            return false;
+        }
+        sosLogRepository.delete(sosLog);
+        return true;
+    }
 }

@@ -11,7 +11,11 @@ public class ReminderRequest {
     @NotBlank(message = "time is required")
     private String time;
 
-    private Boolean repeating = true;
+    private Integer repeating = 1;
+
+    private String weekdays;
 
     private Boolean completed = false;
+
+    private Boolean enabled = true;
 }

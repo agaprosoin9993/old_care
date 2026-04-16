@@ -21,18 +21,22 @@ public class ReminderService {
     }
 
     @Transactional
-    public Reminder createReminder(Long userId, String title, String time, Boolean repeating, Boolean completed) {
+    public Reminder createReminder(Long userId, String title, String time, Integer repeating, 
+                                    String weekdays, Boolean completed, Boolean enabled) {
         Reminder reminder = new Reminder();
         reminder.setTitle(title);
         reminder.setTime(time);
-        reminder.setRepeating(repeating != null ? repeating : true);
+        reminder.setRepeating(repeating != null ? repeating : 1);
+        reminder.setWeekdays(weekdays);
         reminder.setCompleted(completed != null ? completed : false);
+        reminder.setEnabled(enabled != null ? enabled : true);
         reminder.setUserId(userId);
         return reminderRepository.save(reminder);
     }
 
     @Transactional
-    public Reminder updateReminder(Long id, Long userId, String title, String time, Boolean repeating, Boolean completed) {
+    public Reminder updateReminder(Long id, Long userId, String title, String time, Integer repeating,
+                                    String weekdays, Boolean completed, Boolean enabled) {
         Reminder reminder = reminderRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("not found"));
 
@@ -43,7 +47,9 @@ public class ReminderService {
         if (title != null) reminder.setTitle(title);
         if (time != null) reminder.setTime(time);
         if (repeating != null) reminder.setRepeating(repeating);
+        if (weekdays != null) reminder.setWeekdays(weekdays);
         if (completed != null) reminder.setCompleted(completed);
+        if (enabled != null) reminder.setEnabled(enabled);
 
         return reminderRepository.save(reminder);
     }

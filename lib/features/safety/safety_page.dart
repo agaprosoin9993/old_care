@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'heart_rate_dialog.dart';
 import '../../services/heart_rate_service.dart';
+import '../../services/fall_detection_service.dart';
 
-class SafetyPage extends StatelessWidget {
+class SafetyPage extends StatefulWidget {
   const SafetyPage({
     super.key,
     required this.fallDetection,
@@ -10,6 +11,8 @@ class SafetyPage extends StatelessWidget {
     required this.heartRateMonitoring,
     required this.onHeartRateToggle,
     required this.heartRateService,
+    required this.fallDetectionService,
+    this.onFallDetected,
   });
 
   final bool fallDetection;
@@ -17,6 +20,75 @@ class SafetyPage extends StatelessWidget {
   final bool heartRateMonitoring;
   final ValueChanged<bool> onHeartRateToggle;
   final HeartRateService heartRateService;
+  final FallDetectionService fallDetectionService;
+  final VoidCallback? onFallDetected;
+
+  @override
+  State<SafetyPage> createState() => _SafetyPageState();
+}
+
+class _SafetyPageState extends State<SafetyPage> {
+  bool _fallAlertShown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupFallDetection();
+  }
+
+  void _setupFallDetection() {
+    widget.fallDetectionService.onFallDetected = () {
+      if (mounted && !_fallAlertShown) {
+        _fallAlertShown = true;
+        _showFallAlert();
+        widget.onFallDetected?.call();
+      }
+    };
+  }
+
+  void _showFallAlert() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.warning, color: Colors.red),
+            const SizedBox(width: 8),
+            const Text('跌倒检测'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('系统检测到可能发生了跌倒！'),
+            SizedBox(height: 12),
+            Text('如果您需要帮助，请点击SOS按钮。'),
+            Text('如果这是误报，请点击"我没事"。'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              setState(() => _fallAlertShown = false);
+              widget.fallDetectionService.resetFallStatus();
+            },
+            child: const Text('我没事'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              setState(() => _fallAlertShown = false);
+              widget.onFallDetected?.call();
+            },
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('立即求助'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,18 +103,29 @@ class SafetyPage extends StatelessWidget {
               children: [
                 SwitchListTile(
                   title: const Text('跌倒检测'),
-                  subtitle: const Text('检测到异常时自动通知家属'),
-                  value: fallDetection,
-                  onChanged: onFallToggle,
+                  subtitle: Text(
+                    widget.fallDetection
+                        ? '正在监测中，检测到异常会自动提醒'
+                        : '使用加速度传感器和陀螺仪检测跌倒',
+                  ),
+                  value: widget.fallDetection,
+                  onChanged: (v) {
+                    widget.onFallToggle(v);
+                    if (v) {
+                      widget.fallDetectionService.startMonitoring();
+                    } else {
+                      widget.fallDetectionService.stopMonitoring();
+                    }
+                  },
                   secondary: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: fallDetection ? Colors.red.shade50 : Colors.grey.shade100,
+                      color: widget.fallDetection ? Colors.red.shade50 : Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(
                       Icons.health_and_safety,
-                      color: fallDetection ? Colors.red : Colors.grey,
+                      color: widget.fallDetection ? Colors.red : Colors.grey,
                     ),
                   ),
                 ),
@@ -50,23 +133,88 @@ class SafetyPage extends StatelessWidget {
                 SwitchListTile(
                   title: const Text('心率监测'),
                   subtitle: const Text('使用相机检测心率变化'),
-                  value: heartRateMonitoring,
-                  onChanged: onHeartRateToggle,
+                  value: widget.heartRateMonitoring,
+                  onChanged: widget.onHeartRateToggle,
                   secondary: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: heartRateMonitoring ? Colors.pink.shade50 : Colors.grey.shade100,
+                      color: widget.heartRateMonitoring ? Colors.pink.shade50 : Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(
                       Icons.favorite,
-                      color: heartRateMonitoring ? Colors.pink : Colors.grey,
+                      color: widget.heartRateMonitoring ? Colors.pink : Colors.grey,
                     ),
                   ),
                 ),
               ],
             ),
           ),
+          if (widget.fallDetection) ...[
+            const SizedBox(height: 12),
+            _buildCard(
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade100,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.shield,
+                        color: Colors.green,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '跌倒检测已开启',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            '传感器正在后台运行监测中',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.green.withOpacity(0.5),
+                            blurRadius: 8,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
           _buildSectionTitle('快速检测'),
           const SizedBox(height: 8),
@@ -213,7 +361,7 @@ class SafetyPage extends StatelessWidget {
       context: context,
       barrierDismissible: false,
       builder: (context) => HeartRateDialog(
-        heartRateService: heartRateService,
+        heartRateService: widget.heartRateService,
       ),
     );
   }

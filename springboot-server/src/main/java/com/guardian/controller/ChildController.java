@@ -209,4 +209,40 @@ public class ChildController {
         }
         return ResponseEntity.ok(Map.of("success", true));
     }
+
+    @DeleteMapping("/elder/sos-logs/{sosId}")
+    public ResponseEntity<?> deleteSosLog(
+            @PathVariable Long sosId,
+            HttpServletRequest request) {
+        Long userId = authHelper.getUserId(request);
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("unauthorized"));
+        }
+
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("user not found"));
+        }
+
+        User user = userOpt.get();
+        if (!"child".equals(user.getRole())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("only child can access this api"));
+        }
+
+        Long parentId = user.getParentId();
+        if (parentId == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error("no elder bound"));
+        }
+
+        boolean deleted = sosService.deleteSosLog(sosId, parentId);
+        if (!deleted) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error("cannot delete: not found, not read, or not owned"));
+        }
+        return ResponseEntity.ok(Map.of("success", true));
+    }
 }

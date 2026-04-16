@@ -44,12 +44,7 @@ class ApiClient {
   Future<Reminder?> createReminder(Reminder r) async {
     if (!enabled) return null;
     final resp = await http
-        .post(_u('/reminders'), headers: _headers(), body: jsonEncode({
-          'title': r.title,
-          'time': r.formattedTime,
-          'repeating': r.repeating,
-          'completed': r.completed,
-        }))
+        .post(_u('/reminders'), headers: _headers(), body: jsonEncode(r.toJson()))
         .timeout(const Duration(seconds: 5));
     if (resp.statusCode != 201) throw HttpException('create reminder failed ${resp.statusCode}');
     return Reminder.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
@@ -258,6 +253,17 @@ class ApiClient {
       return resp.statusCode == 200;
     } catch (e) {
       print('markAllSosAsRead error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deleteSosLog(int sosId) async {
+    if (!enabled) return false;
+    try {
+      final resp = await http.delete(_u('/child/elder/sos-logs/$sosId'), headers: _headers()).timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (e) {
+      print('deleteSosLog error: $e');
       return false;
     }
   }
