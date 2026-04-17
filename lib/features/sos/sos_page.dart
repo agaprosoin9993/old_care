@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class SosPage extends StatelessWidget {
   const SosPage({
     super.key,
-    required this.lastHelpTime,// 最后一次求救时间
-    required this.contact,// 紧急联系人
-    required this.onSOS,// 求救回调
-    required this.onContactEdited,// 紧急联系人编辑回调
-    required this.locationSharing,// 是否开启位置分享
-    required this.onLocationToggle,// 位置分享切换回调
-    required this.location,// 当前位置
-    this.mapPreviewUrl,// 地图预览URL
+    required this.lastHelpTime,
+    required this.contact,
+    this.contactPhone,
+    required this.onSOS,
+    required this.locationSharing,
+    required this.onLocationToggle,
+    required this.location,
     this.isLocating = false,
     required this.onLocationRefresh,
     required this.lastLocationUpdate,
@@ -18,15 +18,58 @@ class SosPage extends StatelessWidget {
 
   final DateTime? lastHelpTime;
   final String contact;
+  final String? contactPhone;
   final VoidCallback onSOS;
-  final ValueChanged<String> onContactEdited;
   final bool locationSharing;
   final ValueChanged<bool> onLocationToggle;
   final String location;
-  final String? mapPreviewUrl;
   final bool isLocating;
   final VoidCallback onLocationRefresh;
   final DateTime? lastLocationUpdate;
+
+  Future<void> _makePhoneCall(BuildContext context, String phoneNumber) async {
+    final Uri phoneUri = Uri(scheme: 'tel', path: phoneNumber);
+    try {
+      final launched = await launchUrl(
+        phoneUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('无法打开拨号界面，请手动拨打: $phoneNumber'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('拨号失败: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  void _callEmergencyContact(BuildContext context) {
+    if (contactPhone != null && contactPhone!.isNotEmpty) {
+      _makePhoneCall(context, contactPhone!);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('请先设置紧急联系人电话'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _callPolice(BuildContext context) {
+    _makePhoneCall(context, '110');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -98,25 +141,31 @@ class SosPage extends StatelessWidget {
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: BorderSide(color: Colors.grey.shade200)),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            const Icon(Icons.family_restroom, color: Colors.redAccent),
-            const SizedBox(width: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.family_restroom, color: Colors.redAccent, size: 28),
+            ),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('紧急联系人', style: TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 4),
-                  Text(contact, style: const TextStyle(fontSize: 15)),
+                  const Text('紧急联系人', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.grey)),
+                  const SizedBox(height: 6),
+                  Text(
+                    contact,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
                 ],
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: () => _showEditDialog(context),
-            )
           ],
         ),
       ),
@@ -143,24 +192,6 @@ class SosPage extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(location, style: const TextStyle(fontSize: 15)),
-            if (mapPreviewUrl != null) ...[
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: Image.network(
-                    mapPreviewUrl!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      color: Colors.grey.shade200,
-                      alignment: Alignment.center,
-                      child: const Text('地图预览加载失败'),
-                    ),
-                  ),
-                ),
-              ),
-            ],
             if (lastLocationUpdate != null) ...[
               const SizedBox(height: 4),
               Text(
@@ -190,7 +221,7 @@ class SosPage extends StatelessWidget {
       children: [
         Expanded(
           child: OutlinedButton.icon(
-            onPressed: onSOS,
+            onPressed: () => _callEmergencyContact(context),
             style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
             icon: const Icon(Icons.phone, color: Colors.redAccent),
             label: const Text('拨打联系人'),
@@ -199,7 +230,7 @@ class SosPage extends StatelessWidget {
         const SizedBox(width: 12),
         Expanded(
           child: OutlinedButton.icon(
-            onPressed: onSOS,
+            onPressed: () => _callPolice(context),
             style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
             icon: const Icon(Icons.local_police, color: Colors.redAccent),
             label: const Text('拨打110'),
@@ -224,30 +255,6 @@ class SosPage extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  void _showEditDialog(BuildContext context) {
-    final controller = TextEditingController(text: contact);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('编辑紧急联系人'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(hintText: '如：儿子 138xxxxxxx'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('取消')),
-          ElevatedButton(
-            onPressed: () {
-              onContactEdited(controller.text.trim());
-              Navigator.of(ctx).pop();
-            },
-            child: const Text('保存'),
-          ),
-        ],
       ),
     );
   }

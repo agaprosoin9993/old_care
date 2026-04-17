@@ -16,7 +16,6 @@ class ApiClient {
   String? _token;
   bool get enabled => baseUrl.isNotEmpty;
 
-  // 离线模式：使用本地存储而不是后端
   static const _offlineToken = 'offline-token';
   bool get _isOffline => _token == _offlineToken || !enabled;
   static const _offlineContactsKey = 'offline_contacts';
@@ -35,7 +34,7 @@ class ApiClient {
 
   Future<List<Reminder>> fetchReminders() async {
     if (!enabled) return [];
-  final resp = await http.get(_u('/reminders'), headers: _headers()).timeout(const Duration(seconds: 5));
+    final resp = await http.get(_u('/reminders'), headers: _headers()).timeout(const Duration(seconds: 5));
     if (resp.statusCode != 200) throw HttpException('load reminders failed ${resp.statusCode}');
     final data = jsonDecode(resp.body) as List<dynamic>;
     return data.map((e) => Reminder.fromJson(e as Map<String, dynamic>)).toList();
@@ -76,7 +75,6 @@ class ApiClient {
         .timeout(const Duration(seconds: 5));
   }
 
-  // Contacts (family members)
   Future<List<Contact>> fetchContacts() async {
     if (_isOffline) {
       return _loadOfflineContacts();
@@ -86,11 +84,9 @@ class ApiClient {
       if (resp.statusCode != 200) throw HttpException('load contacts failed ${resp.statusCode}');
       final data = jsonDecode(resp.body) as List<dynamic>;
       final contacts = data.map((e) => Contact.fromJson(e as Map<String, dynamic>)).toList();
-      // 将云端数据同步至本地，便于离线回显
       await _saveOfflineContacts(contacts);
       return contacts;
     } catch (_) {
-      // 离线或后端不可用时读取本地缓存
       return _loadOfflineContacts();
     }
   }
@@ -105,7 +101,6 @@ class ApiClient {
         .timeout(const Duration(seconds: 5));
     if (resp.statusCode != 201) throw HttpException('create contact failed ${resp.statusCode}');
     final created = Contact.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
-    // 同步到本地，便于离线展示
     await _appendOfflineContact(created);
     return created;
   }
@@ -211,10 +206,13 @@ class ApiClient {
     }
   }
 
-  Future<bool> updateLocation(String location) async {
+  Future<bool> updateLocation(String location, {double? latitude, double? longitude}) async {
     if (!enabled) return false;
     try {
-      final resp = await http.put(_u('/auth/update-location'), headers: _headers(), body: jsonEncode({'location': location})).timeout(const Duration(seconds: 5));
+      final body = <String, dynamic>{'location': location};
+      if (latitude != null) body['latitude'] = latitude;
+      if (longitude != null) body['longitude'] = longitude;
+      final resp = await http.put(_u('/auth/update-location'), headers: _headers(), body: jsonEncode(body)).timeout(const Duration(seconds: 5));
       return resp.statusCode == 200;
     } catch (e) {
       print('updateLocation error: $e');
@@ -268,7 +266,6 @@ class ApiClient {
     }
   }
 
-  /// ---------------- 离线联系人存储 ----------------
   Future<List<Contact>> _loadOfflineContacts() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_offlineContactsKey) ?? [];

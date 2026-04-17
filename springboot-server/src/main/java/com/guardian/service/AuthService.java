@@ -1,91 +1,55 @@
 package com.guardian.service;
 
 import com.guardian.dto.UserInfo;
-import com.guardian.entity.Session;
 import com.guardian.entity.User;
-import com.guardian.repository.SessionRepository;
 import com.guardian.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
-import java.security.SecureRandom;
-import java.util.UUID;
+import java.util.Random;
 
 @Service
 @RequiredArgsConstructor
 public class AuthService {
     private final UserRepository userRepository;
-    private final SessionRepository sessionRepository;
-    private final PasswordEncoder passwordEncoder;
-    private static final SecureRandom secureRandom = new SecureRandom();
-
-    private String generateElderId() {
-        while (true) {
-            // 生成0-999999之间的随机数，确保是6位
-            int randomNumber = secureRandom.nextInt(1000000);
-            String elderId = String.format("%06d", randomNumber);
-            System.out.println(elderId);
-            System.out.println();
-            System.out.println(randomNumber);
-            if (!userRepository.existsByElderId(elderId)) {
-                return elderId;
-            }
-        }
-    }
+    private final Map<String, Long> tokenStore = new HashMap<>();
+    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     @Transactional
     public AuthResult register(String username, String password, String displayName, String role, Long parentId) {
-        if (userRepository.existsByUsername(username)) {
+        if (userRepository.findByUsername(username).isPresent()) {
             throw new RuntimeException("username already exists");
         }
 
-        Long actualParentId = null;
-        
-        // Validate parentId if provided for child role
-        // parentId实际上是老人的elderId（6位字符串），需要转换为老人的数据库ID
-        if ("child".equals(role) && parentId != null) {
-            // 将Long转换为String（elderId是6位字符串）
-            String elderId = String.format("%06d", parentId);
-            User parentUser = userRepository.findByElderId(elderId)
-                    .orElseThrow(() -> new RuntimeException("老人账号ID不存在"));
-            if (!"elder".equals(parentUser.getRole())) {
-                throw new RuntimeException("指定的ID不是老人账号");
-            }
-            // 使用老人的数据库ID作为parentId
-            actualParentId = parentUser.getId();
-        }
-
-        String passwordHash = passwordEncoder.encode(password);
         User user = new User();
         user.setUsername(username);
-        user.setPasswordHash(passwordHash);
-        user.setDisplayName(displayName != null ? displayName : "");
+        user.setPasswordHash(hashPassword(password));
+        user.setDisplayName(displayName != null && !displayName.isEmpty() ? displayName : username);
         user.setRole(role != null ? role : "elder");
-        user.setParentId(actualParentId);
-        
-        // Generate 6-digit random unique elderId for elder users
-        if ("elder".equals(role)) {
+
+        if ("child".equals(role) && parentId != null) {
+            user.setParentId(parentId);
+        } else if ("elder".equals(role)) {
             user.setElderId(generateElderId());
         }
-        
+
         user = userRepository.save(user);
+        String token = generateToken(user.getId());
 
-        String token = UUID.randomUUID().toString();
-        Session session = new Session();
-        session.setToken(token);
-        session.setUserId(user.getId());
-        sessionRepository.save(session);
-
-        UserInfo userInfo = UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId(), user.getElderId());
-        return new AuthResult(token, userInfo);
-    }
-
-    @Transactional
-    public AuthResult register(String username, String password, String displayName) {
-        return register(username, password, displayName, "elder", null);
+        return new AuthResult(token, UserInfo.of(
+                user.getId(),
+                user.getUsername(),
+                user.getDisplayName(),
+                user.getRole(),
+                user.getParentId(),
+                user.getElderId()
+        ));
     }
 
     @Transactional
@@ -93,85 +57,147 @@ public class AuthService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("invalid credentials"));
 
-        if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+        if (!verifyPassword(password, user.getPasswordHash())) {
             throw new RuntimeException("invalid credentials");
         }
 
-        String token = UUID.randomUUID().toString();
-        Session session = new Session();
-        session.setToken(token);
-        session.setUserId(user.getId());
-        sessionRepository.save(session);
+        String token = generateToken(user.getId());
 
-        UserInfo userInfo = UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId(), user.getElderId());
-        return new AuthResult(token, userInfo);
+        return new AuthResult(token, UserInfo.of(
+                user.getId(),
+                user.getUsername(),
+                user.getDisplayName(),
+                user.getRole(),
+                user.getParentId(),
+                user.getElderId()
+        ));
     }
 
     public Optional<UserInfo> getUserByToken(String token) {
-        return sessionRepository.findByToken(token)
-                .map(session -> {
-                    User user = userRepository.findById(session.getUserId()).orElse(null);
-                    if (user == null) return null;
-                    return UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId(), user.getElderId());
-                });
+        Long userId = tokenStore.get(token);
+        if (userId == null) {
+            return Optional.empty();
+        }
+
+        return userRepository.findById(userId)
+                .map(user -> UserInfo.of(
+                        user.getId(),
+                        user.getUsername(),
+                        user.getDisplayName(),
+                        user.getRole(),
+                        user.getParentId(),
+                        user.getElderId()
+                ));
     }
 
     public Optional<Long> getUserIdByToken(String token) {
-        return sessionRepository.findByToken(token)
-                .map(Session::getUserId);
+        return Optional.ofNullable(tokenStore.get(token));
+    }
+
+    public Optional<UserInfo> getUserById(Long id) {
+        return userRepository.findById(id)
+                .map(user -> UserInfo.of(
+                        user.getId(),
+                        user.getUsername(),
+                        user.getDisplayName(),
+                        user.getRole(),
+                        user.getParentId(),
+                        user.getElderId()
+                ));
     }
 
     @Transactional
-    public void logout(String token) {
-        sessionRepository.deleteByToken(token);
-    }
-
-    public Optional<UserInfo> getUserById(Long userId) {
-        return userRepository.findById(userId)
-                .map(user -> UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId(), user.getElderId()));
-    }
-
-    @Transactional
-    public UserInfo updateParentId(Long userId, Long elderId) {
+    public UserInfo updateParentId(Long userId, Long parentId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("user not found"));
-        
-        // elderId实际上是老人的elderId（6位字符串），需要转换为字符串后查找
-        String elderIdStr = String.format("%06d", elderId);
-        User parentUser = userRepository.findByElderId(elderIdStr)
-                .orElseThrow(() -> new RuntimeException("老人账号ID不存在"));
-        if (!"elder".equals(parentUser.getRole())) {
-            throw new RuntimeException("指定的ID不是老人账号");
+
+        if (!"child".equals(user.getRole())) {
+            throw new RuntimeException("only child users can bind elder");
         }
-        
-        // 使用老人的数据库ID作为parentId
-        user.setParentId(parentUser.getId());
+
+        User elder = userRepository.findById(parentId)
+                .orElseThrow(() -> new RuntimeException("elder not found"));
+
+        if (!"elder".equals(elder.getRole())) {
+            throw new RuntimeException("target user is not an elder");
+        }
+
+        user.setParentId(parentId);
         user = userRepository.save(user);
-        
-        return UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId(), user.getElderId());
+
+        return UserInfo.of(
+                user.getId(),
+                user.getUsername(),
+                user.getDisplayName(),
+                user.getRole(),
+                user.getParentId(),
+                user.getElderId()
+        );
     }
 
     @Transactional
     public UserInfo unbindElder(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("user not found"));
-        
+
         user.setParentId(null);
         user = userRepository.save(user);
-        
-        return UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId(), user.getElderId());
+
+        return UserInfo.of(
+                user.getId(),
+                user.getUsername(),
+                user.getDisplayName(),
+                user.getRole(),
+                user.getParentId(),
+                user.getElderId()
+        );
     }
 
     @Transactional
-    public UserInfo updateLocation(Long userId, String location) {
+    public UserInfo updateLocation(Long userId, String location, Double latitude, Double longitude) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("user not found"));
-        
+
         user.setLastLocation(location);
-        user.setLastLocationUpdate(java.time.LocalDateTime.now());
+        user.setLatitude(latitude);
+        user.setLongitude(longitude);
+        user.setLastLocationUpdate(LocalDateTime.now());
         user = userRepository.save(user);
-        
-        return UserInfo.of(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(), user.getParentId(), user.getElderId());
+
+        return UserInfo.of(
+                user.getId(),
+                user.getUsername(),
+                user.getDisplayName(),
+                user.getRole(),
+                user.getParentId(),
+                user.getElderId()
+        );
+    }
+
+    private String generateToken(Long userId) {
+        String token = "token_" + System.currentTimeMillis() + "_" + new Random().nextInt(10000);
+        tokenStore.put(token, userId);
+        return token;
+    }
+
+    private String hashPassword(String password) {
+        return passwordEncoder.encode(password);
+    }
+
+    private boolean verifyPassword(String password, String hash) {
+        if (hash.startsWith("$2a$") || hash.startsWith("$2b$") || hash.startsWith("$2y$")) {
+            return passwordEncoder.matches(password, hash);
+        }
+        return hash.equals("hashed_" + password);
+    }
+
+    private String generateElderId() {
+        Random random = new Random();
+        String elderId;
+        do {
+            elderId = String.format("%06d", random.nextInt(1000000));
+        } while (userRepository.findByElderId(elderId).isPresent());
+        return elderId;
     }
 
     public record AuthResult(String token, UserInfo user) {}

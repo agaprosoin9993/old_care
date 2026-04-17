@@ -44,6 +44,12 @@ public class User {
     @Column(name = "last_location", length = 500)
     private String lastLocation;
 
+    @Column(name = "latitude")
+    private Double latitude;
+
+    @Column(name = "longitude")
+    private Double longitude;
+
     @Column(name = "last_location_update")
     private LocalDateTime lastLocationUpdate;
 }

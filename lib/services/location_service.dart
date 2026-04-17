@@ -1,30 +1,49 @@
 import 'package:geolocator/geolocator.dart';
 
 class LocationResult {
-  LocationResult({required this.latitude, required this.longitude, required this.display, this.mapPreviewUrl});
+  LocationResult({
+    required this.latitude,
+    required this.longitude,
+    required this.display,
+    this.address,
+    this.accuracy,
+    this.locationType,
+  });
 
   final double latitude;
   final double longitude;
   final String display;
-  final String? mapPreviewUrl;
+  final String? address;
+  final double? accuracy;
+  final String? locationType;
 }
 
 class LocationService {
-  LocationService({String? tencentMapKey})
-      : _tencentMapKey = tencentMapKey ?? const String.fromEnvironment('TENCENT_MAP_KEY', defaultValue: '');
-
-  final String _tencentMapKey;
+  LocationService();
 
   Future<LocationResult> getCurrentLocation() async {
     await _ensurePermission();
-    final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+    
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 15),
+      ),
+    );
+    
+    String locationType = 'GPS定位';
+    if (position.isMocked) {
+      locationType = '模拟定位';
+    }
+    
     final display = '纬度 ${position.latitude.toStringAsFixed(6)}, 经度 ${position.longitude.toStringAsFixed(6)}';
-    final mapUrl = _buildTencentStaticMap(position.latitude, position.longitude);
+    
     return LocationResult(
       latitude: position.latitude,
       longitude: position.longitude,
-      display: mapUrl == null ? display : '$display (已生成腾讯地图预览)',
-      mapPreviewUrl: mapUrl,
+      display: display,
+      accuracy: position.accuracy,
+      locationType: locationType,
     );
   }
 
@@ -46,14 +65,5 @@ class LocationService {
     if (permission == LocationPermission.deniedForever) {
       throw Exception('定位权限被永久拒绝，请到系统设置开启');
     }
-  }
-
-  String? _buildTencentStaticMap(double lat, double lng) {
-    if (_tencentMapKey.isEmpty) return null;
-    // Static map API: https://lbs.qq.com/service/static_map
-    final size = '600*360';
-    final center = '$lat,$lng';
-    final marker = 'color:0xff0000|label:S|$lat,$lng';
-    return 'https://apis.map.qq.com/ws/staticmap/v2/?center=$center&zoom=16&size=$size&maptype=roadmap&markers=$marker&key=$_tencentMapKey';
   }
 }

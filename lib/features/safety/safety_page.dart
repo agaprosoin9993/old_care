@@ -220,7 +220,7 @@ class _SafetyPageState extends State<SafetyPage> {
           const SizedBox(height: 8),
           _buildCard(
             child: InkWell(
-              onTap: () => _showHeartRateDialog(context),
+              onTap: () => _startHeartRateDetection(context),
               borderRadius: BorderRadius.circular(14),
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -229,17 +229,17 @@ class _SafetyPageState extends State<SafetyPage> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.red.shade50,
+                        color: widget.heartRateMonitoring ? Colors.red.shade50 : Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.monitor_heart,
-                        color: Colors.red,
+                        color: widget.heartRateMonitoring ? Colors.red : Colors.grey,
                         size: 28,
                       ),
                     ),
                     const SizedBox(width: 16),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -248,14 +248,15 @@ class _SafetyPageState extends State<SafetyPage> {
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w500,
+                              color: widget.heartRateMonitoring ? Colors.black : Colors.grey,
                             ),
                           ),
-                          SizedBox(height: 4),
+                          const SizedBox(height: 4),
                           Text(
-                            '使用手机相机检测心率',
+                            widget.heartRateMonitoring ? '使用手机相机检测心率' : '请先开启心率监测开关',
                             style: TextStyle(
                               fontSize: 14,
-                              color: Colors.grey,
+                              color: widget.heartRateMonitoring ? Colors.grey : Colors.orange,
                             ),
                           ),
                         ],
@@ -264,14 +265,14 @@ class _SafetyPageState extends State<SafetyPage> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Colors.red.shade50,
+                        color: widget.heartRateMonitoring ? Colors.red.shade50 : Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: const Text(
-                        '开始',
+                      child: Text(
+                        widget.heartRateMonitoring ? '开始' : '未开启',
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.red,
+                          color: widget.heartRateMonitoring ? Colors.red : Colors.grey,
                         ),
                       ),
                     ),
@@ -354,6 +355,28 @@ class _SafetyPageState extends State<SafetyPage> {
         ],
       ),
     );
+  }
+
+  void _startHeartRateDetection(BuildContext context) {
+    if (!widget.heartRateMonitoring) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.warning_amber, color: Colors.white),
+              SizedBox(width: 8),
+              Text('请先开启心率监测开关'),
+            ],
+          ),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+      return;
+    }
+    _showHeartRateDialog(context);
   }
 
   void _showHeartRateDialog(BuildContext context) {

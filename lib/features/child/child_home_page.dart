@@ -25,6 +25,8 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
   int _tabIndex = 0;
 
   String _elderLocation = '未获取';
+  double? _elderLatitude;
+  double? _elderLongitude;
   DateTime? _lastLocationUpdate;
   bool _isLoadingLocation = false;
 
@@ -165,6 +167,10 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
           _elderLocation = result['location'] as String? ?? '未知位置';
           if (result['updatedAt'] != null) {
             _lastLocationUpdate = DateTime.parse(result['updatedAt'] as String);
+          }
+          if (result['latitude'] != null && result['longitude'] != null) {
+            _elderLatitude = (result['latitude'] as num).toDouble();
+            _elderLongitude = (result['longitude'] as num).toDouble();
           }
         });
       }
@@ -367,18 +373,15 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            const Icon(Icons.access_time,
-                                size: 20, color: Colors.grey),
+                            const Icon(Icons.access_time, size: 20, color: Colors.grey),
                             const SizedBox(width: 8),
                             Text(
                               '更新于 ${_formatRelativeTime(_lastLocationUpdate)}',
-                              style: const TextStyle(
-                                  fontSize: 14, color: Colors.grey),
+                              style: const TextStyle(fontSize: 14, color: Colors.grey),
                             ),
                             const Spacer(),
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
                                 color: Colors.green.shade50,
                                 borderRadius: BorderRadius.circular(12),
@@ -389,7 +392,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
                                   Container(
                                     width: 8,
                                     height: 8,
-                                    decoration: BoxDecoration(
+                                    decoration: const BoxDecoration(
                                       color: Colors.green,
                                       shape: BoxShape.circle,
                                     ),
@@ -397,8 +400,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
                                   const SizedBox(width: 4),
                                   const Text(
                                     '实时同步中',
-                                    style: TextStyle(
-                                        fontSize: 12, color: Colors.green),
+                                    style: TextStyle(fontSize: 12, color: Colors.green),
                                   ),
                                 ],
                               ),
@@ -408,6 +410,8 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
                       ],
                     ),
             ),
+            const SizedBox(height: 16),
+            _buildCoordinatesCard(),
             const SizedBox(height: 16),
             if (widget.elderName == null)
               Card(
@@ -427,17 +431,107 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
               ),
             const SizedBox(height: 16),
             _buildInfoCard(
-              title: '位置同步说明',
+              title: '定位说明',
               icon: Icons.info_outline,
               children: [
+                const Text('• 使用 GPS 定位获取老人位置'),
                 const Text('• 位置每5秒自动同步一次'),
                 const Text('• 老人端需要开启位置共享'),
-                const Text('• 位置更新时会收到通知提醒'),
               ],
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildCoordinatesCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.gps_fixed, color: Colors.blue, size: 20),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'GPS坐标',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (_elderLatitude != null && _elderLongitude != null) ...[
+              _buildCoordinateRow('纬度', _elderLatitude!.toStringAsFixed(6)),
+              const SizedBox(height: 8),
+              _buildCoordinateRow('经度', _elderLongitude!.toStringAsFixed(6)),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  children: [
+                    const Icon(Icons.map_outlined, size: 40, color: Colors.grey),
+                    const SizedBox(height: 8),
+                    Text(
+                      '可复制坐标到地图APP查看位置',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                  ],
+                ),
+              ),
+            ] else
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Icon(Icons.location_off, size: 40, color: Colors.grey.shade400),
+                      const SizedBox(height: 8),
+                      Text(
+                        '暂无GPS坐标数据',
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCoordinateRow(String label, String value) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 50,
+          child: Text(
+            label,
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+          ),
+        ),
+      ],
     );
   }
 
@@ -494,19 +588,16 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.check_circle,
-                                size: 64, color: Colors.green),
+                            const Icon(Icons.check_circle, size: 64, color: Colors.green),
                             const SizedBox(height: 16),
                             Text(
                               '${widget.elderName ?? '老人'}近期无SOS告警',
-                              style: const TextStyle(
-                                  fontSize: 16, color: Colors.grey),
+                              style: const TextStyle(fontSize: 16, color: Colors.grey),
                             ),
                             const SizedBox(height: 8),
                             const Text(
                               '老人触发SOS时您将收到实时通知',
-                              style:
-                                  TextStyle(fontSize: 14, color: Colors.grey),
+                              style: TextStyle(fontSize: 14, color: Colors.grey),
                             ),
                           ],
                         ),
@@ -516,8 +607,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
                         itemCount: recentSos.length,
                         itemBuilder: (context, index) {
                           final log = recentSos[index];
-                          final createdAt =
-                              DateTime.parse(log['createdAt'] as String);
+                          final createdAt = DateTime.parse(log['createdAt'] as String);
                           final isRead = log['isRead'] == true;
 
                           return Dismissible(
@@ -592,30 +682,26 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
                                     ),
                                     if (!isRead)
                                       Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 8, vertical: 4),
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                         decoration: BoxDecoration(
                                           color: Colors.red,
                                           borderRadius: BorderRadius.circular(12),
                                         ),
                                         child: const Text(
                                           '未读',
-                                          style: TextStyle(
-                                              color: Colors.white, fontSize: 12),
+                                          style: TextStyle(color: Colors.white, fontSize: 12),
                                         ),
                                       ),
                                     if (isRead)
                                       Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 8, vertical: 4),
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                         decoration: BoxDecoration(
                                           color: Colors.grey.shade200,
                                           borderRadius: BorderRadius.circular(12),
                                         ),
                                         child: const Text(
                                           '左滑删除',
-                                          style: TextStyle(
-                                              color: Colors.grey, fontSize: 11),
+                                          style: TextStyle(color: Colors.grey, fontSize: 11),
                                         ),
                                       ),
                                   ],
@@ -730,10 +816,8 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
   }
 
   Widget _buildRemindersTab() {
-    final completedReminders =
-        _elderReminders.where((r) => r.completed).toList();
-    final pendingReminders =
-        _elderReminders.where((r) => !r.completed).toList();
+    final completedReminders = _elderReminders.where((r) => r.completed).toList();
+    final pendingReminders = _elderReminders.where((r) => !r.completed).toList();
 
     return RefreshIndicator(
       onRefresh: _loadElderReminders,
@@ -806,9 +890,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: reminder.completed
-                ? Colors.green.shade50
-                : Colors.orange.shade50,
+            color: reminder.completed ? Colors.green.shade50 : Colors.orange.shade50,
             shape: BoxShape.circle,
           ),
           child: Icon(
@@ -819,18 +901,15 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
         title: Text(
           reminder.title,
           style: TextStyle(
-            decoration:
-                reminder.completed ? TextDecoration.lineThrough : null,
+            decoration: reminder.completed ? TextDecoration.lineThrough : null,
           ),
         ),
         subtitle: Text(
           '${reminder.formattedTime} ${reminder.repeatType == RepeatType.daily ? '(每日重复)' : reminder.repeatLabel}',
         ),
         trailing: reminder.completed
-            ? const Text('已完成',
-                style: TextStyle(color: Colors.green))
-            : const Text('待完成',
-                style: TextStyle(color: Colors.orange)),
+            ? const Text('已完成', style: TextStyle(color: Colors.green))
+            : const Text('待完成', style: TextStyle(color: Colors.orange)),
       ),
     );
   }
@@ -852,7 +931,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: iconColor.withOpacity(0.1),
+                    color: iconColor.withAlpha(25),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(icon, color: iconColor, size: 24),

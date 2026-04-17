@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -103,7 +104,6 @@ public class AuthController {
         }
 
         try {
-            // 调用 AuthService 中的方法来更新用户的 parentId
             UserInfo updatedUser = authService.updateParentId(userIdOpt.get(), elderId);
             return ResponseEntity.ok(ApiResponse.success(updatedUser, "绑定成功"));
         } catch (RuntimeException e) {
@@ -136,7 +136,7 @@ public class AuthController {
     @PutMapping("/update-location")
     public ResponseEntity<?> updateLocation(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
-            @RequestBody java.util.Map<String, String> body) {
+            @RequestBody Map<String, Object> body) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("unauthorized"));
@@ -150,8 +150,10 @@ public class AuthController {
         }
 
         try {
-            String location = body.get("location");
-            UserInfo updatedUser = authService.updateLocation(userIdOpt.get(), location);
+            String location = body.get("location") != null ? body.get("location").toString() : null;
+            Double latitude = body.get("latitude") != null ? ((Number) body.get("latitude")).doubleValue() : null;
+            Double longitude = body.get("longitude") != null ? ((Number) body.get("longitude")).doubleValue() : null;
+            UserInfo updatedUser = authService.updateLocation(userIdOpt.get(), location, latitude, longitude);
             return ResponseEntity.ok(ApiResponse.success(updatedUser, "位置更新成功"));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));

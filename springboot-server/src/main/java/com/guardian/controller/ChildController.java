@@ -51,6 +51,8 @@ public class ChildController {
         if (parentId == null) {
             return ResponseEntity.ok(Map.of(
                     "location", "未绑定老人",
+                    "latitude", (Object) null,
+                    "longitude", (Object) null,
                     "updatedAt", (Object) null
             ));
         }
@@ -59,6 +61,8 @@ public class ChildController {
         if (elderOpt.isEmpty()) {
             return ResponseEntity.ok(Map.of(
                     "location", "老人账号不存在",
+                    "latitude", (Object) null,
+                    "longitude", (Object) null,
                     "updatedAt", (Object) null
             ));
         }
@@ -66,6 +70,8 @@ public class ChildController {
         User elder = elderOpt.get();
         return ResponseEntity.ok(Map.of(
                 "location", elder.getLastLocation() != null ? elder.getLastLocation() : "未获取位置",
+                "latitude", elder.getLatitude(),
+                "longitude", elder.getLongitude(),
                 "updatedAt", elder.getLastLocationUpdate()
         ));
     }

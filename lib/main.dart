@@ -36,20 +36,22 @@ class _GuardianAppState extends State<GuardianApp> {
   final NotificationService notificationService = NotificationService();
   final bool authRequired = const bool.fromEnvironment('REQUIRE_AUTH', defaultValue: false);
   int _tabIndex = 0;
-  String emergencyContact = '儿子 138-0000-0000';
+  int? _emergencyContactId;
+  String emergencyContact = '未设置紧急联系人';
   String currentLocation = '未获取';
+  double? _currentLatitude;
+  double? _currentLongitude;
   DateTime? lastLocationUpdate;
   bool locationSharing = true;
   bool fallDetection = true;
   bool heartRateMonitoring = true;
   DateTime? lastHelpTime;
-  bool isAuthed = false;// 是否已认证
+  bool isAuthed = false;
   String? currentUser;
   int? currentUserId;
   String? currentUserRole;
   String? currentElderId;
   String? elderName;
-  String? mapPreviewUrl;
   bool _locating = false;
 
   final List<Reminder> reminders = [
@@ -58,6 +60,26 @@ class _GuardianAppState extends State<GuardianApp> {
   ];
 
   List<Contact> family = [];
+
+  Contact? get _emergencyContact {
+    if (_emergencyContactId == null) return null;
+    try {
+      return family.firstWhere((c) => c.id == _emergencyContactId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? get _emergencyContactPhone {
+    return _emergencyContact?.phone;
+  }
+
+  void _setEmergencyContact(Contact contact) {
+    setState(() {
+      _emergencyContactId = contact.id;
+      emergencyContact = '${contact.name} ${contact.phone}';
+    });
+  }
 
   @override
   void initState() {
@@ -80,7 +102,7 @@ class _GuardianAppState extends State<GuardianApp> {
     }
 
     if (currentLocation != '未获取') {
-      await api.updateLocation(currentLocation);
+      await api.updateLocation(currentLocation, latitude: _currentLatitude, longitude: _currentLongitude);
     }
 
     _scaffoldMessengerKey.currentState?.showSnackBar(
@@ -134,19 +156,16 @@ class _GuardianAppState extends State<GuardianApp> {
       if (!mounted) return;
       setState(() {
         currentLocation = res.display;
-        mapPreviewUrl = res.mapPreviewUrl;
+        _currentLatitude = res.latitude;
+        _currentLongitude = res.longitude;
         lastLocationUpdate = DateTime.now();
       });
-      await api.updateLocation(res.display);
+      await api.updateLocation(res.display, latitude: res.latitude, longitude: res.longitude);
     } catch (e) {
       _scaffoldMessengerKey.currentState?.showSnackBar(SnackBar(content: Text('定位失败：$e')));
     } finally {
       if (mounted) setState(() => _locating = false);
     }
-  }
-
-  void _updateContact(String value) {
-    setState(() => emergencyContact = value);
   }
 
   String _formatTime(DateTime time) {
@@ -180,7 +199,6 @@ class _GuardianAppState extends State<GuardianApp> {
       _loadRemindersFromBackend();
       _loadFamilyFromBackend();
     }
-    // 如果是子女角色，获取对应老人的信息
     if (role == 'child' && parentId != null) {
       _loadElderInfo(parentId);
     }
@@ -195,7 +213,6 @@ class _GuardianAppState extends State<GuardianApp> {
         });
       }
     } catch (_) {
-      // 忽略错误
     }
   }
 
@@ -212,7 +229,7 @@ class _GuardianAppState extends State<GuardianApp> {
     });
   }
 
-  void _openAccountSheet() {//打开账户弹窗
+  void _openAccountSheet() {
     final ctx = _navigatorKey.currentContext;
     if (ctx == null) return;
 
@@ -328,14 +345,14 @@ class _GuardianAppState extends State<GuardianApp> {
       if (mounted) {
         setState(() {
           family = fetched;
-          if (family.isNotEmpty) {
+          if (family.isNotEmpty && _emergencyContactId == null) {
             final first = family.first;
+            _emergencyContactId = first.id;
             emergencyContact = '${first.name} ${first.phone}';
           }
         });
       }
     } catch (_) {
-      // ignore offline errors
     }
   }
 
@@ -350,7 +367,6 @@ class _GuardianAppState extends State<GuardianApp> {
         });
       }
     } catch (_) {
-      // 离线或后端未启动时忽略，保留本地示例数据
     }
   }
 
@@ -394,10 +410,8 @@ class _GuardianAppState extends State<GuardianApp> {
                 return;
               }
               try {
-                // 调用后端API来绑定老人ID
                 final result = await api.bindElder(int.parse(elderId));
                 if (result != null) {
-                  // 绑定成功，获取老人信息
                   final parentId = result['data']['parentId'] as int?;
                   if (parentId != null) {
                     await _loadElderInfo(parentId);
@@ -461,7 +475,7 @@ class _GuardianAppState extends State<GuardianApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      navigatorKey: _navigatorKey,// 导航键，用于在全局访问导航器
+      navigatorKey: _navigatorKey,
       scaffoldMessengerKey: _scaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
       title: '安心儿-老人呵护助手',
@@ -481,7 +495,7 @@ class _GuardianAppState extends State<GuardianApp> {
             IconButton(
               onPressed: _openAccountSheet,
               icon: const Icon(Icons.person),
-              tooltip: isAuthed ? '切换/退出登录' : '登录/注册',//提示框
+              tooltip: isAuthed ? '切换/退出登录' : '登录/注册',
             )
           ],
         ),
@@ -503,12 +517,11 @@ class _GuardianAppState extends State<GuardianApp> {
                         SosPage(
                           lastHelpTime: lastHelpTime,
                           contact: emergencyContact,
+                          contactPhone: _emergencyContactPhone,
                           onSOS: () => _triggerSOS(context),
-                          onContactEdited: _updateContact,
                           locationSharing: locationSharing,
                           onLocationToggle: (v) => setState(() => locationSharing = v),
                           location: currentLocation,
-                          mapPreviewUrl: mapPreviewUrl,
                           isLocating: _locating,
                           onLocationRefresh: _refreshLocation,
                           lastLocationUpdate: lastLocationUpdate,
@@ -529,7 +542,18 @@ class _GuardianAppState extends State<GuardianApp> {
                           fallDetectionService: fallDetectionService,
                           onFallDetected: () => _triggerSOS(context),
                         ),
-                        FamilyPage(api: api, isAuthed: isAuthed),
+                        FamilyPage(
+                          api: api,
+                          isAuthed: isAuthed,
+                          contacts: family,
+                          emergencyContactId: _emergencyContactId,
+                          onSetEmergency: _setEmergencyContact,
+                          onContactsChanged: (contacts) {
+                            setState(() {
+                              family = contacts;
+                            });
+                          },
+                        ),
                       ],
                     ),
         ),

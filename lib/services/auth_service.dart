@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -47,7 +48,8 @@ class AuthService {
           )
           .timeout(const Duration(seconds: 5));
       if (resp.statusCode != 201) {
-        throw HttpException('register failed ${resp.statusCode}');
+        final errorBody = jsonDecode(resp.body);
+        throw HttpException(errorBody['message'] ?? 'register failed ${resp.statusCode}');
       }
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
       _token = data['token'] as String?;
@@ -67,9 +69,15 @@ class AuthService {
         parentId: user['parentId'] as int?,
         elderId: user['elderId'] as String?,
       );
-    } catch (_) {
-      // 无后端时降级为本地注册
+    } on SocketException catch (_) {
       return _registerOffline(username, password, displayName);
+    } on TimeoutException catch (_) {
+      return _registerOffline(username, password, displayName);
+    } on HttpException catch (e) {
+      if (e.message.contains('Connection refused') || e.message.contains('Connection timed out')) {
+        return _registerOffline(username, password, displayName);
+      }
+      rethrow;
     }
   }
 
@@ -82,8 +90,12 @@ class AuthService {
             body: jsonEncode({'username': username, 'password': password}),
           )
           .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 401) {
+        throw HttpException('用户名或密码错误');
+      }
       if (resp.statusCode != 200) {
-        throw HttpException('login failed ${resp.statusCode}');
+        final errorBody = jsonDecode(resp.body);
+        throw HttpException(errorBody['message'] ?? 'login failed ${resp.statusCode}');
       }
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
       _token = data['token'] as String?;
@@ -103,23 +115,27 @@ class AuthService {
         parentId: user['parentId'] as int?,
         elderId: user['elderId'] as String?,
       );
-    } catch (_) {
+    } on SocketException catch (_) {
       return _loginOffline(username, password);
+    } on TimeoutException catch (_) {
+      return _loginOffline(username, password);
+    } on HttpException catch (e) {
+      if (e.message.contains('Connection refused') || e.message.contains('Connection timed out')) {
+        return _loginOffline(username, password);
+      }
+      rethrow;
     }
   }
 
   Future<AuthResult?> me() async {
     if (_token == null) return null;
     
-    // 无论是否是离线token，都先尝试连接后端
     try {
       final resp = await http.get(_u('/auth/me'), headers: _headers()).timeout(const Duration(seconds: 5));
       if (resp.statusCode != 200) {
-        // 如果后端返回错误，尝试离线模式
         return _getOfflineResult();
       }
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
-      // /auth/me 直接返回 UserInfo 对象，而不是包含 user 的结构
       final user = data;
       if (kDebugMode) {
         print('me() response: $data');
@@ -138,7 +154,6 @@ class AuthService {
       if (kDebugMode) {
         print('me() error: $e');
       }
-      // 离线时返回本地用户
       return _getOfflineResult();
     }
   }
@@ -199,7 +214,7 @@ class AuthService {
       await _persistOfflineAccount(candidate['username']!, candidate['password']!, candidate['display']!);
       return AuthResult(token: _offlineToken, username: candidate['username']!, displayName: candidate['display']!, id: 1, role: 'elder', elderId: '123456');
     }
-    throw HttpException('offline login failed');
+    throw HttpException('离线模式: 用户名或密码错误 (默认账号: elder / 123456)');
   }
 
   Future<AuthResult> _registerOffline(String username, String password, String displayName) async {
