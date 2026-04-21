@@ -34,7 +34,7 @@ class _GuardianAppState extends State<GuardianApp> {
   final HeartRateService heartRateService = HeartRateService();
   final FallDetectionService fallDetectionService = FallDetectionService();
   final NotificationService notificationService = NotificationService();
-  final bool authRequired = const bool.fromEnvironment('REQUIRE_AUTH', defaultValue: false);
+  final bool authRequired = const bool.fromEnvironment('REQUIRE_AUTH', defaultValue: true);
   int _tabIndex = 0;
   int? _emergencyContactId;
   String emergencyContact = '未设置紧急联系人';
@@ -522,6 +522,8 @@ class _GuardianAppState extends State<GuardianApp> {
                           locationSharing: locationSharing,
                           onLocationToggle: (v) => setState(() => locationSharing = v),
                           location: currentLocation,
+                          latitude: _currentLatitude,
+                          longitude: _currentLongitude,
                           isLocating: _locating,
                           onLocationRefresh: _refreshLocation,
                           lastLocationUpdate: lastLocationUpdate,
@@ -557,7 +559,7 @@ class _GuardianAppState extends State<GuardianApp> {
                       ],
                     ),
         ),
-        bottomNavigationBar: currentUserRole == 'child' ? null : NavigationBar(
+        bottomNavigationBar: (!isAuthed || currentUserRole == 'child') ? null : NavigationBar(
           selectedIndex: _tabIndex,
           destinations: const [
             NavigationDestination(icon: Icon(Icons.sos), label: '求助'),

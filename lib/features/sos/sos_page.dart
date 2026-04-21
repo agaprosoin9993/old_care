@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../widgets/location_map_widget.dart';
 
 class SosPage extends StatelessWidget {
   const SosPage({
@@ -11,6 +12,8 @@ class SosPage extends StatelessWidget {
     required this.locationSharing,
     required this.onLocationToggle,
     required this.location,
+    this.latitude,
+    this.longitude,
     this.isLocating = false,
     required this.onLocationRefresh,
     required this.lastLocationUpdate,
@@ -23,6 +26,8 @@ class SosPage extends StatelessWidget {
   final bool locationSharing;
   final ValueChanged<bool> onLocationToggle;
   final String location;
+  final double? latitude;
+  final double? longitude;
   final bool isLocating;
   final VoidCallback onLocationRefresh;
   final DateTime? lastLocationUpdate;
@@ -173,47 +178,172 @@ class SosPage extends StatelessWidget {
   }
 
   Widget _buildLocationCard(BuildContext context) {
+    final hasLocation = latitude != null && longitude != null;
+
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: BorderSide(color: Colors.grey.shade200)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            child: Row(
               children: [
-                const Icon(Icons.location_pin, color: Colors.redAccent),
-                const SizedBox(width: 8),
-                const Text('位置共享'),
-                const Spacer(),
-                Switch(value: locationSharing, onChanged: onLocationToggle),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: hasLocation ? Colors.green.shade50 : Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.location_on,
+                    color: hasLocation ? Colors.green : Colors.orange,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '我的位置',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        hasLocation 
+                            ? (lastLocationUpdate != null 
+                                ? '更新于 ${_formatTime(lastLocationUpdate!)}' 
+                                : '已获取')
+                            : '点击下方按钮获取位置',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: hasLocation ? Colors.green.shade600 : Colors.orange.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (hasLocation)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.check_circle, size: 14, color: Colors.green.shade600),
+                        const SizedBox(width: 4),
+                        Text(
+                          '已定位',
+                          style: TextStyle(fontSize: 12, color: Colors.green.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
-            const SizedBox(height: 6),
-            Text(location, style: const TextStyle(fontSize: 15)),
-            if (lastLocationUpdate != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                '上次更新：${_formatTime(lastLocationUpdate!)}',
-                style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
-              ),
-            ],
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: isLocating ? null : onLocationRefresh,
-                icon: isLocating
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.refresh),
-                label: Text(isLocating ? '定位中...' : '更新位置'),
-              ),
-            )
-          ],
-        ),
+          ),
+          LocationMapWidget(
+            zoom: 16,
+            height: 180,
+            center: latitude != null && longitude != null 
+                ? LatLng(latitude!, longitude!) 
+                : null,
+            markers: latitude != null && longitude != null 
+                ? [
+                    MapMarker(
+                      position: LatLng(latitude!, longitude!),
+                      label: '我的位置',
+                      color: Colors.blue,
+                    ),
+                  ]
+                : [],
+          ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              children: [
+                if (hasLocation) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.place, size: 18, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            location.isNotEmpty ? location : '位置已获取',
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: isLocating ? null : onLocationRefresh,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          side: BorderSide(color: Colors.blue.shade300),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        icon: isLocating
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                            : Icon(Icons.my_location, color: Colors.blue.shade600),
+                        label: Text(
+                          isLocating ? '定位中...' : '更新我的位置',
+                          style: TextStyle(color: Colors.blue.shade600),
+                        ),
+                      ),
+                    ),
+                    if (hasLocation) ...[
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _openInMapApp(context),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            side: BorderSide(color: Colors.green.shade300),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          icon: Icon(Icons.map, color: Colors.green.shade600),
+                          label: Text(
+                            '在地图中打开',
+                            style: TextStyle(color: Colors.green.shade600),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  void _openInMapApp(BuildContext context) async {
+    if (latitude == null || longitude == null) return;
+    final uri = Uri.parse('geo:$latitude,$longitude?q=$latitude,$longitude');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
   }
 
   Widget _buildQuickActions(BuildContext context) {

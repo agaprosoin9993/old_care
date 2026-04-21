@@ -46,4 +46,6 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    implementation("com.tencent.map:sdk-utilities:1.0.8")
+    implementation("com.tencent.map:tencent-map-vector-sdk:5.6.0")
 }

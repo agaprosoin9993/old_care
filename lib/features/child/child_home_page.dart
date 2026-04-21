@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../services/api_client.dart';
 import '../../services/notification_service.dart';
 import '../../models/reminder.dart';
+import '../../widgets/location_map_widget.dart';
 
 class ChildHomePage extends StatefulWidget {
   final ApiClient api;
@@ -30,6 +32,10 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
   DateTime? _lastLocationUpdate;
   bool _isLoadingLocation = false;
 
+  double? _myLatitude;
+  double? _myLongitude;
+  bool _isLoadingMyLocation = false;
+
   List<Map<String, dynamic>> _sosLogs = [];
   bool _isLoadingSos = false;
   String? _lastSosId;
@@ -47,6 +53,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
     WidgetsBinding.instance.addObserver(this);
     _initializeNotifications();
     _loadElderData();
+    _loadMyLocation();
     _startPolling();
   }
 
@@ -61,6 +68,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _loadElderData();
+      _loadMyLocation();
       _startPolling();
     } else if (state == AppLifecycleState.paused) {
       _pollingTimer?.cancel();
@@ -90,6 +98,81 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
       _loadElderReminders(),
     ]);
     await _loadUnreadCount();
+  }
+
+  Future<void> _loadMyLocation() async {
+    setState(() => _isLoadingMyLocation = true);
+    
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      LocationPermission permission = await Geolocator.checkPermission();
+      
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      Position? position;
+      
+      if (serviceEnabled && 
+          permission != LocationPermission.denied && 
+          permission != LocationPermission.deniedForever) {
+        try {
+          position = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              timeLimit: Duration(seconds: 15),
+            ),
+          );
+        } catch (e) {
+          debugPrint('高精度定位失败: $e');
+          try {
+            position = await Geolocator.getCurrentPosition(
+              locationSettings: const LocationSettings(
+                accuracy: LocationAccuracy.medium,
+                timeLimit: Duration(seconds: 10),
+              ),
+            );
+          } catch (e2) {
+            debugPrint('低精度定位失败: $e2');
+            position = await Geolocator.getLastKnownPosition();
+          }
+        }
+      }
+      
+      if (position == null) {
+        position = Position(
+          latitude: 39.9042,
+          longitude: 116.4074,
+          timestamp: DateTime.now(),
+          accuracy: 0,
+          altitude: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          headingAccuracy: 0,
+          speed: 0,
+          speedAccuracy: 0,
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _myLatitude = position!.latitude;
+          _myLongitude = position.longitude;
+        });
+      }
+    } catch (e) {
+      debugPrint('获取自己位置失败: $e');
+      if (mounted) {
+        setState(() {
+          _myLatitude = 39.9042;
+          _myLongitude = 116.4074;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingMyLocation = false);
+      }
+    }
   }
 
   Future<void> _loadUnreadCount() async {
@@ -307,7 +390,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
           NavigationDestination(
             icon: const Icon(Icons.location_on_outlined),
             selectedIcon: const Icon(Icons.location_on),
-            label: '老人位置',
+            label: '位置',
           ),
           NavigationDestination(
             icon: _unreadCount > 0
@@ -337,81 +420,19 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
 
   Widget _buildLocationTab() {
     return RefreshIndicator(
-      onRefresh: _loadElderLocation,
+      onRefresh: () async {
+        await _loadElderLocation();
+        await _loadMyLocation();
+      },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildHeaderCard(
-              icon: Icons.location_on,
-              iconColor: Colors.blue,
-              title: '${widget.elderName ?? '老人'}的位置',
-              child: _isLoadingLocation
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: CircularProgressIndicator(),
-                      ),
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.place, size: 20, color: Colors.grey),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _elderLocation,
-                                style: const TextStyle(fontSize: 16),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            const Icon(Icons.access_time, size: 20, color: Colors.grey),
-                            const SizedBox(width: 8),
-                            Text(
-                              '更新于 ${_formatRelativeTime(_lastLocationUpdate)}',
-                              style: const TextStyle(fontSize: 14, color: Colors.grey),
-                            ),
-                            const Spacer(),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.green.shade50,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Container(
-                                    width: 8,
-                                    height: 8,
-                                    decoration: const BoxDecoration(
-                                      color: Colors.green,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  const Text(
-                                    '实时同步中',
-                                    style: TextStyle(fontSize: 12, color: Colors.green),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-            ),
+            _buildMapCard(),
             const SizedBox(height: 16),
-            _buildCoordinatesCard(),
+            _buildLocationInfoCard(),
             const SizedBox(height: 16),
             if (widget.elderName == null)
               Card(
@@ -429,108 +450,178 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
                   ),
                 ),
               ),
-            const SizedBox(height: 16),
-            _buildInfoCard(
-              title: '定位说明',
-              icon: Icons.info_outline,
-              children: [
-                const Text('• 使用 GPS 定位获取老人位置'),
-                const Text('• 位置每5秒自动同步一次'),
-                const Text('• 老人端需要开启位置共享'),
-              ],
-            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCoordinatesCard() {
+  Widget _buildMapCard() {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            color: Colors.blue.shade50,
+            child: Row(
+              children: [
+                const Icon(Icons.map, color: Colors.blue),
+                const SizedBox(width: 8),
+                const Text(
+                  '位置地图',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const Spacer(),
+                if (_isLoadingLocation || _isLoadingMyLocation)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
+            ),
+          ),
+          LocationMapWidget(
+            zoom: 14,
+            height: 280,
+            center: _elderLatitude != null && _elderLongitude != null
+                ? LatLng(_elderLatitude!, _elderLongitude!)
+                : (_myLatitude != null && _myLongitude != null
+                    ? LatLng(_myLatitude!, _myLongitude!)
+                    : null),
+            markers: [
+              if (_elderLatitude != null && _elderLongitude != null)
+                MapMarker(
+                  position: LatLng(_elderLatitude!, _elderLongitude!),
+                  label: '${widget.elderName ?? '老人'}的位置',
+                  color: Colors.red,
+                ),
+              if (_myLatitude != null && _myLongitude != null)
+                MapMarker(
+                  position: LatLng(_myLatitude!, _myLongitude!),
+                  label: '我的位置',
+                  color: Colors.blue,
+                ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildLegendItem(Colors.red, '老人位置', Icons.elderly),
+                _buildLegendItem(Colors.blue, '我的位置', Icons.person_pin_circle),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegendItem(Color color, String label, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 4),
+        Text(label, style: const TextStyle(fontSize: 12)),
+      ],
+    );
+  }
+
+  Widget _buildLocationInfoCard() {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.gps_fixed, color: Colors.blue, size: 20),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'GPS坐标',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
-              ],
+            _buildLocationRow(
+              Icons.elderly,
+              Colors.red,
+              '${widget.elderName ?? '老人'}的位置',
+              _elderLocation,
+              _elderLatitude,
+              _elderLongitude,
+              _lastLocationUpdate,
             ),
-            const SizedBox(height: 16),
-            if (_elderLatitude != null && _elderLongitude != null) ...[
-              _buildCoordinateRow('纬度', _elderLatitude!.toStringAsFixed(6)),
-              const SizedBox(height: 8),
-              _buildCoordinateRow('经度', _elderLongitude!.toStringAsFixed(6)),
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  children: [
-                    const Icon(Icons.map_outlined, size: 40, color: Colors.grey),
-                    const SizedBox(height: 8),
-                    Text(
-                      '可复制坐标到地图APP查看位置',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                    ),
-                  ],
-                ),
-              ),
-            ] else
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Icon(Icons.location_off, size: 40, color: Colors.grey.shade400),
-                      const SizedBox(height: 8),
-                      Text(
-                        '暂无GPS坐标数据',
-                        style: TextStyle(color: Colors.grey.shade600),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            const Divider(height: 24),
+            _buildLocationRow(
+              Icons.person,
+              Colors.blue,
+              '我的位置',
+              _myLatitude != null ? '已获取' : '未获取',
+              _myLatitude,
+              _myLongitude,
+              null,
+              isMyLocation: true,
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCoordinateRow(String label, String value) {
-    return Row(
+  Widget _buildLocationRow(
+    IconData icon,
+    Color color,
+    String title,
+    String location,
+    double? latitude,
+    double? longitude,
+    DateTime? updateTime, {
+    bool isMyLocation = false,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: 50,
-          child: Text(
-            label,
-            style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
-          ),
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: color.withAlpha(25),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 8),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+            const Spacer(),
+            if (updateTime != null)
+              Text(
+                _formatRelativeTime(updateTime),
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+          ],
         ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-          ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            const Icon(Icons.place, size: 16, color: Colors.grey),
+            const SizedBox(width: 4),
+            Expanded(child: Text(location, style: const TextStyle(fontSize: 14))),
+          ],
         ),
+        if (latitude != null && longitude != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            '经度: ${longitude.toStringAsFixed(6)}  纬度: ${latitude.toStringAsFixed(6)}',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+        ],
+        if (isMyLocation) ...[
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _isLoadingMyLocation ? null : _loadMyLocation,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('刷新我的位置'),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -910,77 +1001,6 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
         trailing: reminder.completed
             ? const Text('已完成', style: TextStyle(color: Colors.green))
             : const Text('待完成', style: TextStyle(color: Colors.orange)),
-      ),
-    );
-  }
-
-  Widget _buildHeaderCard({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required Widget child,
-  }) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: iconColor.withAlpha(25),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(icon, color: iconColor, size: 24),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            child,
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoCard({
-    required String title,
-    required IconData icon,
-    required List<Widget> children,
-  }) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 20, color: Colors.grey),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            ...children,
-          ],
-        ),
       ),
     );
   }
