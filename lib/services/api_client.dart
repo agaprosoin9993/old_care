@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/reminder.dart';
 import '../models/contact.dart';
+import 'local_cache_service.dart';
+import 'sync_service.dart';
 
 class ApiClient {
   ApiClient({String? baseUrl})
@@ -20,8 +22,19 @@ class ApiClient {
   bool get _isOffline => _token == _offlineToken || !enabled;
   static const _offlineContactsKey = 'offline_contacts';
 
+  LocalCacheService? _cache;
+  SyncService? _sync;
+
   void setToken(String? token) {
     _token = token;
+  }
+
+  void setCache(LocalCacheService cache) {
+    _cache = cache;
+  }
+
+  void setSync(SyncService sync) {
+    _sync = sync;
   }
 
   Uri _u(String path) => Uri.parse('$baseUrl$path');
@@ -34,45 +47,121 @@ class ApiClient {
 
   Future<List<Reminder>> fetchReminders() async {
     if (!enabled) return [];
-    final resp = await http.get(_u('/reminders'), headers: _headers()).timeout(const Duration(seconds: 5));
-    if (resp.statusCode != 200) throw HttpException('load reminders failed ${resp.statusCode}');
-    final data = jsonDecode(resp.body) as List<dynamic>;
-    return data.map((e) => Reminder.fromJson(e as Map<String, dynamic>)).toList();
+    
+    try {
+      final resp = await http.get(_u('/reminders'), headers: _headers()).timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) throw HttpException('load reminders failed ${resp.statusCode}');
+      final data = jsonDecode(resp.body) as List<dynamic>;
+      final reminders = data.map((e) => Reminder.fromJson(e as Map<String, dynamic>)).toList();
+      
+      if (_cache != null) {
+        final reminderMaps = reminders.map((r) => r.toJson()).toList();
+        await _cache!.saveReminders(reminderMaps);
+      }
+      
+      return reminders;
+    } catch (e) {
+      debugPrint('获取提醒失败，尝试使用缓存: $e');
+      if (_cache != null) {
+        final cached = _cache!.getReminders();
+        if (cached != null) {
+          return cached.map((e) => Reminder.fromJson(e)).toList();
+        }
+      }
+      return [];
+    }
   }
 
   Future<Reminder?> createReminder(Reminder r) async {
     if (!enabled) return null;
-    final resp = await http
-        .post(_u('/reminders'), headers: _headers(), body: jsonEncode(r.toJson()))
-        .timeout(const Duration(seconds: 5));
-    if (resp.statusCode != 201) throw HttpException('create reminder failed ${resp.statusCode}');
-    return Reminder.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+    
+    try {
+      final resp = await http
+          .post(_u('/reminders'), headers: _headers(), body: jsonEncode(r.toJson()))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 201) throw HttpException('create reminder failed ${resp.statusCode}');
+      final created = Reminder.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+      
+      if (_sync != null && _sync!.isOnline) {
+        await _sync!.syncReminders();
+      }
+      
+      return created;
+    } catch (e) {
+      debugPrint('创建提醒失败: $e');
+      if (_sync != null && !_sync!.isOnline) {
+        await _sync!.addPendingAction('create_reminder', r.toJson());
+      }
+      return null;
+    }
   }
 
   Future<Reminder?> updateReminder(Reminder r) async {
     if (!enabled || r.id == null) return null;
-    final resp = await http
-        .put(_u('/reminders/${r.id}'), headers: _headers(), body: jsonEncode(r.toJson()))
-        .timeout(const Duration(seconds: 5));
-    if (resp.statusCode != 200) throw HttpException('update reminder failed ${resp.statusCode}');
-    return Reminder.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+    
+    try {
+      final resp = await http
+          .put(_u('/reminders/${r.id}'), headers: _headers(), body: jsonEncode(r.toJson()))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) throw HttpException('update reminder failed ${resp.statusCode}');
+      final updated = Reminder.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+      
+      if (_sync != null && _sync!.isOnline) {
+        await _sync!.syncReminders();
+      }
+      
+      return updated;
+    } catch (e) {
+      debugPrint('更新提醒失败: $e');
+      if (_sync != null && !_sync!.isOnline) {
+        await _sync!.addPendingAction('update_reminder', r.toJson());
+      }
+      return null;
+    }
   }
 
   Future<bool> deleteReminder(int id) async {
     if (!enabled) return false;
-    final resp = await http.delete(_u('/reminders/$id'), headers: _headers()).timeout(const Duration(seconds: 5));
-    return resp.statusCode == 200;
+    
+    try {
+      final resp = await http.delete(_u('/reminders/$id'), headers: _headers()).timeout(const Duration(seconds: 5));
+      final success = resp.statusCode == 200;
+      
+      if (success && _sync != null && _sync!.isOnline) {
+        await _sync!.syncReminders();
+      }
+      
+      return success;
+    } catch (e) {
+      debugPrint('删除提醒失败: $e');
+      if (_sync != null && !_sync!.isOnline) {
+        await _sync!.addPendingAction('delete_reminder', {'id': id});
+      }
+      return false;
+    }
   }
 
   Future<void> logSOS({String location = '', String contact = '', String note = ''}) async {
     if (!enabled) return;
-    await http
-        .post(_u('/sos'), headers: _headers(), body: jsonEncode({
+    
+    try {
+      await http
+          .post(_u('/sos'), headers: _headers(), body: jsonEncode({
+            'location': location,
+            'contact': contact,
+            'note': note,
+          }))
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('记录SOS失败: $e');
+      if (_sync != null && !_sync!.isOnline) {
+        await _sync!.addPendingAction('log_sos', {
           'location': location,
           'contact': contact,
           'note': note,
-        }))
-        .timeout(const Duration(seconds: 5));
+        });
+      }
+    }
   }
 
   Future<List<Contact>> fetchContacts() async {
@@ -84,9 +173,21 @@ class ApiClient {
       if (resp.statusCode != 200) throw HttpException('load contacts failed ${resp.statusCode}');
       final data = jsonDecode(resp.body) as List<dynamic>;
       final contacts = data.map((e) => Contact.fromJson(e as Map<String, dynamic>)).toList();
+      
+      if (_cache != null) {
+        final contactMaps = contacts.map((c) => c.toJson()).toList();
+        await _cache!.saveContacts(contactMaps);
+      }
+      
       await _saveOfflineContacts(contacts);
       return contacts;
     } catch (_) {
+      if (_cache != null) {
+        final cached = _cache!.getContacts();
+        if (cached != null) {
+          return cached.map((e) => Contact.fromJson(e)).toList();
+        }
+      }
       return _loadOfflineContacts();
     }
   }
@@ -96,13 +197,24 @@ class ApiClient {
       final saved = await _addOfflineContact(c);
       return saved;
     }
-    final resp = await http
-        .post(_u('/contacts'), headers: _headers(), body: jsonEncode(c.toJson()))
-        .timeout(const Duration(seconds: 5));
-    if (resp.statusCode != 201) throw HttpException('create contact failed ${resp.statusCode}');
-    final created = Contact.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
-    await _appendOfflineContact(created);
-    return created;
+    
+    try {
+      final resp = await http
+          .post(_u('/contacts'), headers: _headers(), body: jsonEncode(c.toJson()))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 201) throw HttpException('create contact failed ${resp.statusCode}');
+      final created = Contact.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+      
+      if (_sync != null && _sync!.isOnline) {
+        await _sync!.syncContacts();
+      }
+      
+      await _appendOfflineContact(created);
+      return created;
+    } catch (e) {
+      debugPrint('创建联系人失败: $e');
+      return await _addOfflineContact(c);
+    }
   }
 
   Future<Contact?> updateContact(Contact c) async {
@@ -110,13 +222,19 @@ class ApiClient {
       final updated = await _updateOfflineContact(c);
       return updated;
     }
-    final resp = await http
-        .put(_u('/contacts/${c.id}'), headers: _headers(), body: jsonEncode(c.toJson()))
-        .timeout(const Duration(seconds: 5));
-    if (resp.statusCode != 200) throw HttpException('update contact failed ${resp.statusCode}');
-    final updated = Contact.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
-    await _updateOfflineContact(updated);
-    return updated;
+    
+    try {
+      final resp = await http
+          .put(_u('/contacts/${c.id}'), headers: _headers(), body: jsonEncode(c.toJson()))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) throw HttpException('update contact failed ${resp.statusCode}');
+      final updated = Contact.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+      await _updateOfflineContact(updated);
+      return updated;
+    } catch (e) {
+      debugPrint('更新联系人失败: $e');
+      return await _updateOfflineContact(c);
+    }
   }
 
   Future<bool> deleteContact(int id) async {
@@ -126,13 +244,19 @@ class ApiClient {
       await _saveOfflineContacts(removed);
       return true;
     }
-    final resp = await http.delete(_u('/contacts/$id'), headers: _headers()).timeout(const Duration(seconds: 5));
-    final ok = resp.statusCode == 200;
-    if (ok) {
-      final contacts = await _loadOfflineContacts();
-      await _saveOfflineContacts(contacts.where((c) => c.id != id).toList());
+    
+    try {
+      final resp = await http.delete(_u('/contacts/$id'), headers: _headers()).timeout(const Duration(seconds: 5));
+      final ok = resp.statusCode == 200;
+      if (ok) {
+        final contacts = await _loadOfflineContacts();
+        await _saveOfflineContacts(contacts.where((c) => c.id != id).toList());
+      }
+      return ok;
+    } catch (e) {
+      debugPrint('删除联系人失败: $e');
+      return false;
     }
-    return ok;
   }
 
   Future<Map<String, dynamic>?> getUserInfo(int userId) async {
@@ -175,9 +299,18 @@ class ApiClient {
     try {
       final resp = await http.get(_u('/child/elder/location'), headers: _headers()).timeout(const Duration(seconds: 5));
       if (resp.statusCode != 200) throw HttpException('get elder location failed ${resp.statusCode}');
-      return jsonDecode(resp.body) as Map<String, dynamic>;
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      
+      if (_cache != null) {
+        await _cache!.saveElderLocation(data);
+      }
+      
+      return data;
     } catch (e) {
       print('getElderLocation error: $e');
+      if (_cache != null) {
+        return _cache!.getElderLocation();
+      }
       return null;
     }
   }
@@ -187,9 +320,19 @@ class ApiClient {
     try {
       final resp = await http.get(_u('/child/elder/sos-logs'), headers: _headers()).timeout(const Duration(seconds: 5));
       if (resp.statusCode != 200) throw HttpException('get elder sos logs failed ${resp.statusCode}');
-      return jsonDecode(resp.body) as List<dynamic>;
+      final data = jsonDecode(resp.body) as List<dynamic>;
+      
+      if (_cache != null) {
+        await _cache!.saveSosLogs(data.cast<Map<String, dynamic>>());
+      }
+      
+      return data;
     } catch (e) {
       print('getElderSosLogs error: $e');
+      if (_cache != null) {
+        final cached = _cache!.getSosLogs();
+        return cached;
+      }
       return null;
     }
   }
@@ -199,9 +342,19 @@ class ApiClient {
     try {
       final resp = await http.get(_u('/child/elder/reminders'), headers: _headers()).timeout(const Duration(seconds: 5));
       if (resp.statusCode != 200) throw HttpException('get elder reminders failed ${resp.statusCode}');
-      return jsonDecode(resp.body) as List<dynamic>;
+      final data = jsonDecode(resp.body) as List<dynamic>;
+      
+      if (_cache != null) {
+        await _cache!.saveElderReminders(data.cast<Map<String, dynamic>>());
+      }
+      
+      return data;
     } catch (e) {
       print('getElderReminders error: $e');
+      if (_cache != null) {
+        final cached = _cache!.getElderReminders();
+        return cached;
+      }
       return null;
     }
   }
@@ -216,6 +369,13 @@ class ApiClient {
       return resp.statusCode == 200;
     } catch (e) {
       print('updateLocation error: $e');
+      if (_sync != null && !_sync!.isOnline) {
+        await _sync!.addPendingAction('update_location', {
+          'location': location,
+          'latitude': latitude,
+          'longitude': longitude,
+        });
+      }
       return false;
     }
   }

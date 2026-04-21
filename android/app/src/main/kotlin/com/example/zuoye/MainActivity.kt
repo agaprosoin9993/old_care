@@ -4,6 +4,8 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 
 class MainActivity : FlutterActivity() {
+    private var locationService: TencentLocationService? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
@@ -14,5 +16,15 @@ class MainActivity : FlutterActivity() {
                 "tencent_map_view",
                 TencentMapFactory(application, flutterEngine.dartExecutor.binaryMessenger)
             )
+
+        locationService = TencentLocationService(
+            application,
+            flutterEngine.dartExecutor.binaryMessenger
+        )
+    }
+
+    override fun onDestroy() {
+        locationService?.dispose()
+        super.onDestroy()
     }
 }

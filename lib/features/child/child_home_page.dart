@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:flutter/services.dart';
 import '../../services/api_client.dart';
 import '../../services/notification_service.dart';
 import '../../models/reminder.dart';
@@ -104,74 +104,31 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
     setState(() => _isLoadingMyLocation = true);
     
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      LocationPermission permission = await Geolocator.checkPermission();
+      const channel = MethodChannel('tencent_location_service');
+      final result = await channel.invokeMethod<Map<dynamic, dynamic>>('getCurrentLocation');
       
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      Position? position;
-      
-      if (serviceEnabled && 
-          permission != LocationPermission.denied && 
-          permission != LocationPermission.deniedForever) {
-        try {
-          position = await Geolocator.getCurrentPosition(
-            locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.high,
-              timeLimit: Duration(seconds: 15),
-            ),
-          );
-        } catch (e) {
-          debugPrint('高精度定位失败: $e');
-          try {
-            position = await Geolocator.getCurrentPosition(
-              locationSettings: const LocationSettings(
-                accuracy: LocationAccuracy.medium,
-                timeLimit: Duration(seconds: 10),
-              ),
-            );
-          } catch (e2) {
-            debugPrint('低精度定位失败: $e2');
-            position = await Geolocator.getLastKnownPosition();
-          }
+      if (result != null) {
+        final latitude = (result['latitude'] as num).toDouble();
+        final longitude = (result['longitude'] as num).toDouble();
+        
+        if (mounted) {
+          setState(() {
+            _myLatitude = latitude;
+            _myLongitude = longitude;
+          });
         }
-      }
-      
-      if (position == null) {
-        position = Position(
-          latitude: 39.9042,
-          longitude: 116.4074,
-          timestamp: DateTime.now(),
-          accuracy: 0,
-          altitude: 0,
-          altitudeAccuracy: 0,
-          heading: 0,
-          headingAccuracy: 0,
-          speed: 0,
-          speedAccuracy: 0,
-        );
-      }
-
-      if (mounted) {
-        setState(() {
-          _myLatitude = position!.latitude;
-          _myLongitude = position.longitude;
-        });
+        return;
       }
     } catch (e) {
-      debugPrint('获取自己位置失败: $e');
-      if (mounted) {
-        setState(() {
-          _myLatitude = 39.9042;
-          _myLongitude = 116.4074;
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoadingMyLocation = false);
-      }
+      debugPrint('腾讯定位失败: $e');
+    }
+
+    if (mounted) {
+      setState(() {
+        _myLatitude = 39.9042;
+        _myLongitude = 116.4074;
+        _isLoadingMyLocation = false;
+      });
     }
   }
 

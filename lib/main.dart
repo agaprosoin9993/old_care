@@ -13,13 +13,24 @@ import 'services/location_service.dart';
 import 'services/heart_rate_service.dart';
 import 'services/notification_service.dart';
 import 'services/fall_detection_service.dart';
+import 'services/local_cache_service.dart';
+import 'services/sync_service.dart';
+import 'services/reminder_scheduler_service.dart';
 
-void main() {
-  runApp(const GuardianApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  final cache = await LocalCacheService.getInstance();
+  final sync = SyncService();
+  
+  runApp(GuardianApp(cache: cache, sync: sync));
 }
 
 class GuardianApp extends StatefulWidget {
-  const GuardianApp({super.key});
+  final LocalCacheService cache;
+  final SyncService sync;
+
+  const GuardianApp({super.key, required this.cache, required this.sync});
 
   @override
   State<GuardianApp> createState() => _GuardianAppState();
@@ -34,6 +45,7 @@ class _GuardianAppState extends State<GuardianApp> {
   final HeartRateService heartRateService = HeartRateService();
   final FallDetectionService fallDetectionService = FallDetectionService();
   final NotificationService notificationService = NotificationService();
+  final ReminderSchedulerService reminderScheduler = ReminderSchedulerService();
   final bool authRequired = const bool.fromEnvironment('REQUIRE_AUTH', defaultValue: true);
   int _tabIndex = 0;
   int? _emergencyContactId;
@@ -91,6 +103,12 @@ class _GuardianAppState extends State<GuardianApp> {
 
   Future<void> _initializeServices() async {
     await notificationService.initialize();
+    
+    api.setCache(widget.cache);
+    api.setSync(widget.sync);
+    widget.sync.initialize(api, authService, widget.cache);
+    
+    reminderScheduler.initialize(api, widget.cache);
   }
 
   void _triggerSOS(BuildContext context) async {
@@ -176,13 +194,40 @@ class _GuardianAppState extends State<GuardianApp> {
   Future<void> _bootstrapAuth() async {
     await authService.loadFromStorage();
     api.setToken(authService.token);
+    
+    final cachedToken = widget.cache.getUserToken();
+    if (cachedToken != null && authService.token == null) {
+      api.setToken(cachedToken);
+    }
+    
     final me = await authService.me();
     if (me != null && mounted) {
+      await widget.cache.saveUserToken(me.token);
+      await widget.cache.saveUserData({
+        'id': me.id,
+        'username': me.username,
+        'displayName': me.displayName,
+        'role': me.role,
+        'elderId': me.elderId,
+      });
+      
       _onAuthed(me.token, me.username, me.displayName, refreshData: false, userId: me.id, role: me.role, elderId: me.elderId);
       _loadRemindersFromBackend();
       _loadFamilyFromBackend();
+      if (me.role == 'elder') {
+        _refreshLocation();
+      }
+      
+      if (widget.sync.isOnline) {
+        widget.sync.syncAll();
+      }
     } else if (!authRequired) {
       setState(() => isAuthed = false);
+    } else {
+      final cachedUser = widget.cache.getUserData();
+      if (cachedUser != null) {
+        debugPrint('使用缓存的用户数据');
+      }
     }
   }
 
@@ -202,6 +247,9 @@ class _GuardianAppState extends State<GuardianApp> {
     if (role == 'child' && parentId != null) {
       _loadElderInfo(parentId);
     }
+    if (role == 'elder') {
+      _refreshLocation();
+    }
   }
 
   Future<void> _loadElderInfo(int elderId) async {
@@ -219,6 +267,7 @@ class _GuardianAppState extends State<GuardianApp> {
   Future<void> _logout() async {
     await authService.logout();
     api.setToken(null);
+    await widget.cache.clearAll();
     setState(() {
       isAuthed = false;
       currentUser = null;
@@ -365,6 +414,7 @@ class _GuardianAppState extends State<GuardianApp> {
             ..clear()
             ..addAll(fetched);
         });
+        await reminderScheduler.loadReminders(fetched);
       }
     } catch (_) {
     }

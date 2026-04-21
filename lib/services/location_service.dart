@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
 class LocationResult {
@@ -9,6 +10,10 @@ class LocationResult {
     this.address,
     this.accuracy,
     this.locationType,
+    this.province,
+    this.city,
+    this.district,
+    this.street,
   });
 
   final double latitude;
@@ -17,6 +22,10 @@ class LocationResult {
   final String? address;
   final double? accuracy;
   final String? locationType;
+  final String? province;
+  final String? city;
+  final String? district;
+  final String? street;
 }
 
 class LocationService {
@@ -26,7 +35,60 @@ class LocationService {
   static const double _defaultLongitude = 116.4074;
   static const String _defaultLocation = '北京市东城区';
 
+  static const MethodChannel _channel = MethodChannel('tencent_location_service');
+
   Future<LocationResult> getCurrentLocation() async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return _getTencentLocation();
+    }
+    return _getGeolocatorLocation();
+  }
+
+  Future<LocationResult> _getTencentLocation() async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('getCurrentLocation');
+      
+      if (result != null) {
+        final latitude = (result['latitude'] as num).toDouble();
+        final longitude = (result['longitude'] as num).toDouble();
+        final accuracy = result['accuracy'] as double?;
+        final address = result['address'] as String?;
+        final province = result['province'] as String?;
+        final city = result['city'] as String?;
+        final district = result['district'] as String?;
+        final street = result['street'] as String?;
+        final provider = result['provider'] as String?;
+
+        String display;
+        if (address != null && address.isNotEmpty) {
+          display = address;
+        } else if (district != null && district.isNotEmpty) {
+          display = '$province$city$district';
+        } else {
+          display = '纬度 ${latitude.toStringAsFixed(6)}, 经度 ${longitude.toStringAsFixed(6)}';
+        }
+
+        return LocationResult(
+          latitude: latitude,
+          longitude: longitude,
+          display: display,
+          address: address,
+          accuracy: accuracy,
+          locationType: provider ?? '腾讯定位',
+          province: province,
+          city: city,
+          district: district,
+          street: street,
+        );
+      }
+    } catch (e) {
+      debugPrint('腾讯定位失败: $e');
+    }
+
+    return _getGeolocatorLocation();
+  }
+
+  Future<LocationResult> _getGeolocatorLocation() async {
     Position? position;
     bool useDefault = false;
     
@@ -37,7 +99,7 @@ class LocationService {
         position = await Geolocator.getCurrentPosition(
           locationSettings: const LocationSettings(
             accuracy: LocationAccuracy.high,
-            timeLimit: Duration(seconds: 15),
+            timeLimit: Duration(seconds: 10),
           ),
         );
       } catch (e) {
@@ -45,8 +107,8 @@ class LocationService {
         try {
           position = await Geolocator.getCurrentPosition(
             locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.medium,
-              timeLimit: Duration(seconds: 10),
+              accuracy: LocationAccuracy.low,
+              timeLimit: Duration(seconds: 5),
             ),
           );
         } catch (e2) {
