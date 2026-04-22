@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'features/reminders/reminder_page.dart';
 import 'features/safety/safety_page.dart';
 import 'features/sos/sos_page.dart';
@@ -109,6 +110,9 @@ class _GuardianAppState extends State<GuardianApp> {
     widget.sync.initialize(api, authService, widget.cache);
     
     reminderScheduler.initialize(api, widget.cache);
+    
+    await reminderScheduler.loadReminders(reminders);
+    debugPrint('已加载 ${reminders.length} 个本地提醒到调度器');
   }
 
   void _triggerSOS(BuildContext context) async {
@@ -132,6 +136,46 @@ class _GuardianAppState extends State<GuardianApp> {
     api.logSOS(location: currentLocation, contact: emergencyContact).catchError((_) {});
   }
 
+  void _callEmergencyContact(BuildContext context) {
+    if (_emergencyContactPhone != null && _emergencyContactPhone!.isNotEmpty) {
+      _makePhoneCall(context, _emergencyContactPhone!);
+    } else {
+      _scaffoldMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Text('请先设置紧急联系人电话'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _makePhoneCall(BuildContext context, String phoneNumber) async {
+    final Uri phoneUri = Uri(scheme: 'tel', path: phoneNumber);
+    try {
+      final launched = await launchUrl(
+        phoneUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && context.mounted) {
+        _scaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Text('无法打开拨号界面，请手动拨打: $phoneNumber'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        _scaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Text('拨号失败: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
   void _toggleReminder(Reminder item) {
     setState(() => item.completed = !item.completed);
     api.updateReminder(item).catchError((_) => null);
@@ -139,6 +183,7 @@ class _GuardianAppState extends State<GuardianApp> {
 
   void _addReminder(Reminder item) {
     setState(() => reminders.add(item));
+    reminderScheduler.addReminder(item);
     api.createReminder(item).then((saved) {
       if (saved != null && mounted) {
         setState(() {
@@ -151,6 +196,7 @@ class _GuardianAppState extends State<GuardianApp> {
 
   void _removeReminder(Reminder item) {
     setState(() => reminders.remove(item));
+    reminderScheduler.removeReminder(item);
     if (item.id != null) {
       api.deleteReminder(item.id!).catchError((_) => false);
     }
@@ -162,6 +208,7 @@ class _GuardianAppState extends State<GuardianApp> {
       setState(() {
         reminders[index] = item;
       });
+      reminderScheduler.updateReminder(item);
       api.updateReminder(item).catchError((_) => null);
     }
   }
@@ -415,8 +462,11 @@ class _GuardianAppState extends State<GuardianApp> {
             ..addAll(fetched);
         });
         await reminderScheduler.loadReminders(fetched);
+        debugPrint('从后端加载了 ${fetched.length} 个提醒');
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('从后端加载提醒失败: $e');
+      await reminderScheduler.loadReminders(reminders);
     }
   }
 
@@ -577,6 +627,7 @@ class _GuardianAppState extends State<GuardianApp> {
                           isLocating: _locating,
                           onLocationRefresh: _refreshLocation,
                           lastLocationUpdate: lastLocationUpdate,
+                          onCallEmergency: () => _callEmergencyContact(context),
                         ),
                         ReminderPage(
                           reminders: reminders,

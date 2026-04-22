@@ -17,6 +17,7 @@ class SosPage extends StatelessWidget {
     this.isLocating = false,
     required this.onLocationRefresh,
     required this.lastLocationUpdate,
+    this.onCallEmergency,
   });
 
   final DateTime? lastHelpTime;
@@ -31,6 +32,7 @@ class SosPage extends StatelessWidget {
   final bool isLocating;
   final VoidCallback onLocationRefresh;
   final DateTime? lastLocationUpdate;
+  final VoidCallback? onCallEmergency;
 
   Future<void> _makePhoneCall(BuildContext context, String phoneNumber) async {
     final Uri phoneUri = Uri(scheme: 'tel', path: phoneNumber);
@@ -113,7 +115,12 @@ class SosPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             ElevatedButton.icon(
-              onPressed: onSOS,
+              onPressed: () {
+                onSOS();
+                if (contactPhone != null && contactPhone!.isNotEmpty) {
+                  onCallEmergency?.call();
+                }
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.redAccent,
                 foregroundColor: Colors.white,

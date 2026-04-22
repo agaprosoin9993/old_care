@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/reminder.dart';
 import '../../services/notification_service.dart';
-import '../../services/reminder_scheduler_service.dart';
 
 class ReminderPage extends StatelessWidget {
   const ReminderPage({
@@ -54,19 +53,7 @@ class ReminderPage extends StatelessWidget {
             child: ListTile(
               leading: const Icon(Icons.event_available, color: Colors.green),
               title: Text('今日剩余 $activeCount 条提醒'),
-              subtitle: Text('当前时间: ${TimeOfDay.now().format(context)} · 点击测试提醒'),
-              trailing: IconButton(
-                icon: const Icon(Icons.play_circle, color: Colors.blue),
-                onPressed: () {
-                  ReminderSchedulerService().debugPrintStatus();
-                  if (sorted.isNotEmpty) {
-                    NotificationService().showReminderAlert(
-                      reminderTitle: sorted.first.title,
-                      reminderId: sorted.first.id ?? 0,
-                    );
-                  }
-                },
-              ),
+              subtitle: Text('当前时间: ${TimeOfDay.now().format(context)}'),
             ),
           ),
           const SizedBox(height: 12),
@@ -150,21 +137,6 @@ class ReminderPage extends StatelessWidget {
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                IconButton(
-                                  icon: const Icon(Icons.notifications_active, color: Colors.orange),
-                                  tooltip: '测试提醒',
-                                  onPressed: () async {
-                                    await NotificationService().showReminderAlert(
-                                      reminderTitle: item.title,
-                                      reminderId: item.id ?? 0,
-                                    );
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('已触发提醒: ${item.title}')),
-                                      );
-                                    }
-                                  },
-                                ),
                                 if (onEdit != null)
                                   IconButton(
                                     icon: const Icon(Icons.edit_outlined, color: Colors.blue),

@@ -21,14 +21,24 @@ class ReminderSchedulerService extends ChangeNotifier {
   Timer? _checkTimer;
   ApiClient? _api;
   LocalCacheService? _cache;
+  bool _notificationInitialized = false;
 
   List<Reminder> get reminders => List.unmodifiable(_reminders);
 
   void initialize(ApiClient api, LocalCacheService? cache) {
     _api = api;
     _cache = cache;
+    _ensureNotificationInitialized();
     _startPeriodicCheck();
     debugPrint('提醒调度服务初始化完成');
+  }
+
+  Future<void> _ensureNotificationInitialized() async {
+    if (!_notificationInitialized) {
+      await _notificationService.initialize();
+      _notificationInitialized = true;
+      debugPrint('通知服务在调度器中初始化完成');
+    }
   }
 
   void _startPeriodicCheck() {
@@ -48,9 +58,10 @@ class ReminderSchedulerService extends ChangeNotifier {
     
     debugPrint('加载了 ${_reminders.length} 个启用的提醒');
     for (final r in _reminders) {
-      debugPrint('  提醒: ${r.title} at ${r.time.hour}:${r.time.minute}');
+      debugPrint('  提醒: ${r.title} at ${r.time.hour}:${r.time.minute}, ID: ${r.id}');
     }
     
+    await _ensureNotificationInitialized();
     await _scheduleAllReminders();
     
     notifyListeners();
@@ -121,6 +132,8 @@ class ReminderSchedulerService extends ChangeNotifier {
     final currentMinutes = now.hour * 60 + now.minute;
     final today = '${now.year}-${now.month}-${now.day}';
 
+    debugPrint('检查提醒: 当前时间 ${now.hour}:${now.minute} ($currentMinutes 分钟), 已加载 ${_reminders.length} 个提醒');
+
     if (_triggeredToday.isNotEmpty) {
       final lastTriggerDate = _triggeredToday.first.split('_').first;
       if (lastTriggerDate != today) {
@@ -130,23 +143,30 @@ class ReminderSchedulerService extends ChangeNotifier {
     }
 
     for (final reminder in _reminders) {
+      final reminderMinutes = reminder.minutesOfDay;
       final triggerKey = '${today}_${reminder.id}';
       
-      if (reminder.minutesOfDay == currentMinutes && !_triggeredToday.contains(triggerKey)) {
-        debugPrint('时间匹配: ${reminder.title} at ${now.hour}:${now.minute}');
+      debugPrint('  检查提醒: ${reminder.title} - 设置时间 ${reminder.time.hour}:${reminder.time.minute} ($reminderMinutes 分钟)');
+      
+      if (reminderMinutes == currentMinutes && !_triggeredToday.contains(triggerKey)) {
+        debugPrint('>>> 时间匹配! 触发提醒: ${reminder.title}');
         _triggeredToday.add(triggerKey);
         _triggerReminder(reminder);
       }
     }
   }
 
-  void _triggerReminder(Reminder reminder) {
+  void _triggerReminder(Reminder reminder) async {
     debugPrint('触发提醒: ${reminder.title}');
     
-    _notificationService.showReminderAlert(
+    await _ensureNotificationInitialized();
+    
+    await _notificationService.showReminderAlert(
       reminderTitle: reminder.title,
       reminderId: reminder.id ?? 0,
     );
+    
+    debugPrint('提醒通知已发送: ${reminder.title}');
   }
 
   void debugPrintStatus() {

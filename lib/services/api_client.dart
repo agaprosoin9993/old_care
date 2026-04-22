@@ -12,7 +12,7 @@ import 'sync_service.dart';
 
 class ApiClient {
   ApiClient({String? baseUrl})
-      : baseUrl = baseUrl ?? const String.fromEnvironment('BACKEND_BASE_URL', defaultValue: kIsWeb ? 'http://localhost:3001' : 'http://10.0.2.2:3001');
+      : baseUrl = baseUrl ?? const String.fromEnvironment('BACKEND_BASE_URL', defaultValue: kIsWeb ? 'http://localhost:3001' : 'http://172.20.10.2:3001');
 
   final String baseUrl;
   String? _token;

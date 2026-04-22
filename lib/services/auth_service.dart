@@ -19,8 +19,7 @@ class AuthResult {
 
 class AuthService {
   AuthService({String? baseUrl})
-      : baseUrl = baseUrl ?? const String.fromEnvironment('BACKEND_BASE_URL', defaultValue: 'http://10.0.2.2:3001');
-
+      : baseUrl = baseUrl ?? const String.fromEnvironment('BACKEND_BASE_URL', defaultValue: 'http://172.20.10.2:3001');
   final String baseUrl;
   String? _token;
   String? get token => _token;
