@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,11 @@ class HeartRateService {
   final List<double> _redValues = [];
   Timer? _detectionTimer;
   int? _lastHeartRate;
+  final List<int> _heartRateHistory = [];
+  
+  double _actualFps = 30.0;
+  DateTime? _lastFrameTime;
+  int _frameCount = 0;
 
   bool get isDetecting => _isDetecting;
   int? get lastHeartRate => _lastHeartRate;
@@ -65,11 +71,27 @@ class HeartRateService {
     _isDetecting = true;
     _redValues.clear();
     _lastHeartRate = null;
+    _heartRateHistory.clear();
+    _frameCount = 0;
+    _lastFrameTime = null;
 
     try {
       await _controller!.setFlashMode(FlashMode.torch);
       await _controller!.startImageStream((image) {
         if (!_isDetecting) return;
+
+        final now = DateTime.now();
+        if (_lastFrameTime != null) {
+          _frameCount++;
+          final elapsed = now.difference(_lastFrameTime!).inMilliseconds;
+          if (elapsed >= 1000) {
+            _actualFps = _frameCount * 1000.0 / elapsed;
+            _frameCount = 0;
+            _lastFrameTime = now;
+          }
+        } else {
+          _lastFrameTime = now;
+        }
 
         double redSum = 0;
         int pixelCount = 0;
@@ -82,8 +104,8 @@ class HeartRateService {
           final width = image.width;
           final height = image.height;
 
-          for (int y = 0; y < height; y += 10) {
-            for (int x = 0; x < width; x += 10) {
+          for (int y = height ~/ 4; y < height * 3 ~/ 4; y += 8) {
+            for (int x = width ~/ 4; x < width * 3 ~/ 4; x += 8) {
               final yIndex = y * yPlane.bytesPerRow + x;
               final uvIndex = (y ~/ 2) * uPlane.bytesPerRow + (x ~/ 2);
 
@@ -103,14 +125,17 @@ class HeartRateService {
           final plane = image.planes[0];
           final bytes = plane.bytes;
           final bytesPerRow = plane.bytesPerRow;
+          final width = image.width;
+          final height = image.height;
 
-          for (int i = 0; i < bytes.length; i += 4) {
-            final row = i ~/ bytesPerRow;
-            final col = (i % bytesPerRow) ~/ 4;
-            if (row % 10 == 0 && col % 10 == 0) {
-              final r = bytes[i + 2];
-              redSum += r;
-              pixelCount++;
+          for (int row = height ~/ 4; row < height * 3 ~/ 4; row += 8) {
+            for (int col = width ~/ 4; col < width * 3 ~/ 4; col += 8) {
+              final i = row * bytesPerRow + col * 4;
+              if (i + 2 < bytes.length) {
+                final r = bytes[i + 2];
+                redSum += r;
+                pixelCount++;
+              }
             }
           }
         }
@@ -129,11 +154,18 @@ class HeartRateService {
         elapsed += updateInterval.inMilliseconds;
         final progress = elapsed / detectionDuration.inMilliseconds;
 
-        if (_redValues.length >= 30) {
+        if (_redValues.length >= 60) {
           final heartRate = _calculateHeartRate();
-          if (heartRate != null && heartRate > 40 && heartRate < 200) {
-            _lastHeartRate = heartRate;
-            onProgress(heartRate, progress);
+          if (heartRate != null && heartRate >= 50 && heartRate <= 160) {
+            _heartRateHistory.add(heartRate);
+            
+            if (_heartRateHistory.length > 5) {
+              _heartRateHistory.removeAt(0);
+            }
+            
+            final smoothedHeartRate = _heartRateHistory.reduce((a, b) => a + b) ~/ _heartRateHistory.length;
+            _lastHeartRate = smoothedHeartRate;
+            onProgress(smoothedHeartRate, progress);
           }
         }
 
@@ -154,32 +186,97 @@ class HeartRateService {
   }
 
   int? _calculateHeartRate() {
-    if (_redValues.length < 30) return null;
+    if (_redValues.length < 60) return null;
 
-    final values = _redValues.sublist(_redValues.length - 150);
-    final mean = values.reduce((a, b) => a + b) / values.length;
+    final values = _redValues.sublist(_redValues.length - 300.clamp(60, _redValues.length));
+    
+    final filtered = _bandpassFilter(values);
+    
+    final peaks = _findPeaks(filtered);
+    
+    if (peaks.length < 2) return null;
 
-    final peaks = <int>[];
-    for (int i = 1; i < values.length - 1; i++) {
-      if (values[i] > values[i - 1] &&
-          values[i] > values[i + 1] &&
-          values[i] > mean) {
-        peaks.add(i);
+    final validIntervals = <int>[];
+    for (int i = 1; i < peaks.length; i++) {
+      final interval = peaks[i] - peaks[i - 1];
+      final instantBpm = 60.0 * _actualFps / interval;
+      
+      if (instantBpm >= 50 && instantBpm <= 160) {
+        validIntervals.add(interval);
       }
     }
 
-    if (peaks.length < 2) return null;
+    if (validIntervals.length < 2) return null;
 
-    final intervals = <int>[];
-    for (int i = 1; i < peaks.length; i++) {
-      intervals.add(peaks[i] - peaks[i - 1]);
+    validIntervals.sort();
+    final trimmedIntervals = validIntervals.sublist(
+      (validIntervals.length * 0.1).floor(),
+      (validIntervals.length * 0.9).ceil(),
+    );
+
+    if (trimmedIntervals.isEmpty) return null;
+
+    final avgInterval = trimmedIntervals.reduce((a, b) => a + b) / trimmedIntervals.length;
+    final bpm = 60.0 * _actualFps / avgInterval;
+
+    return bpm.round().clamp(50, 160);
+  }
+
+  List<double> _bandpassFilter(List<double> input) {
+    if (input.length < 10) return input;
+
+    final smoothed = List<double>.filled(input.length, 0);
+    
+    for (int i = 0; i < input.length; i++) {
+      int start = (i - 5).clamp(0, input.length - 1);
+      int end = (i + 5).clamp(0, input.length - 1);
+      double sum = 0;
+      int count = 0;
+      for (int j = start; j <= end; j++) {
+        sum += input[j];
+        count++;
+      }
+      smoothed[i] = sum / count;
     }
 
-    final avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
-    final fps = 30.0;
-    final bpm = 60.0 * fps / avgInterval;
+    final detrended = List<double>.filled(input.length, 0);
+    for (int i = 1; i < smoothed.length; i++) {
+      detrended[i] = smoothed[i] - smoothed[i - 1];
+    }
 
-    return bpm.round();
+    return detrended;
+  }
+
+  List<int> _findPeaks(List<double> values) {
+    final peaks = <int>[];
+    final mean = values.reduce((a, b) => a + b) / values.length;
+    final stdDev = sqrt(
+      values.map((v) => pow(v - mean, 2)).reduce((a, b) => a + b) / values.length
+    );
+    final threshold = mean + stdDev * 0.5;
+
+    int? lastPeak;
+    int minPeakDistance = (_actualFps * 0.4).round();
+
+    for (int i = 2; i < values.length - 2; i++) {
+      if (values[i] > threshold &&
+          values[i] > values[i - 1] &&
+          values[i] > values[i + 1] &&
+          values[i] > values[i - 2] &&
+          values[i] > values[i + 2]) {
+        
+        if (lastPeak == null || (i - lastPeak) >= minPeakDistance) {
+          peaks.add(i);
+          lastPeak = i;
+        } else if (values[i] > values[lastPeak]) {
+          peaks.remove(lastPeak);
+          peaks.add(i);
+          lastPeak = i;
+        }
+      }
+    }
+
+    return peaks;
   }
 
   Future<void> stopDetection() async {

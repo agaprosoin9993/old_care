@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'features/reminders/reminder_page.dart';
 import 'features/safety/safety_page.dart';
@@ -17,21 +19,39 @@ import 'services/fall_detection_service.dart';
 import 'services/local_cache_service.dart';
 import 'services/sync_service.dart';
 import 'services/reminder_scheduler_service.dart';
+import 'services/background_service.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  final cache = await LocalCacheService.getInstance();
-  final sync = SyncService();
-  
-  runApp(GuardianApp(cache: cache, sync: sync));
+  runZonedGuarded<Future<void>>(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    
+    FlutterError.onError = (FlutterErrorDetails details) {
+      FlutterError.presentError(details);
+      debugPrint('Flutter Error: ${details.exception}');
+      debugPrint('Stack trace: ${details.stack}');
+    };
+
+    LocalCacheService? cache;
+    try {
+      cache = await LocalCacheService.getInstance();
+    } catch (e) {
+      debugPrint('LocalCacheService初始化失败: $e');
+    }
+    
+    final sync = SyncService();
+    
+    runApp(GuardianApp(cache: cache, sync: sync));
+  }, (Object error, StackTrace stack) {
+    debugPrint('Uncaught error: $error');
+    debugPrint('Stack trace: $stack');
+  });
 }
 
 class GuardianApp extends StatefulWidget {
-  final LocalCacheService cache;
+  final LocalCacheService? cache;
   final SyncService sync;
 
-  const GuardianApp({super.key, required this.cache, required this.sync});
+  const GuardianApp({super.key, this.cache, required this.sync});
 
   @override
   State<GuardianApp> createState() => _GuardianAppState();
@@ -47,10 +67,13 @@ class _GuardianAppState extends State<GuardianApp> {
   final FallDetectionService fallDetectionService = FallDetectionService();
   final NotificationService notificationService = NotificationService();
   final ReminderSchedulerService reminderScheduler = ReminderSchedulerService();
+  final BackgroundServiceManager backgroundService = BackgroundServiceManager();
   final bool authRequired = const bool.fromEnvironment('REQUIRE_AUTH', defaultValue: true);
   int _tabIndex = 0;
-  int? _emergencyContactId;
-  String emergencyContact = '未设置紧急联系人';
+  int? _emergencyContactId1;
+  int? _emergencyContactId2;
+  String emergencyContact1 = '未设置紧急联系人1';
+  String emergencyContact2 = '未设置紧急联系人2';
   String currentLocation = '未获取';
   double? _currentLatitude;
   double? _currentLongitude;
@@ -74,45 +97,104 @@ class _GuardianAppState extends State<GuardianApp> {
 
   List<Contact> family = [];
 
-  Contact? get _emergencyContact {
-    if (_emergencyContactId == null) return null;
+  Contact? get _emergencyContact1 {
+    if (_emergencyContactId1 == null) return null;
     try {
-      return family.firstWhere((c) => c.id == _emergencyContactId);
+      return family.firstWhere((c) => c.id == _emergencyContactId1);
     } catch (_) {
       return null;
     }
   }
 
-  String? get _emergencyContactPhone {
-    return _emergencyContact?.phone;
+  Contact? get _emergencyContact2 {
+    if (_emergencyContactId2 == null) return null;
+    try {
+      return family.firstWhere((c) => c.id == _emergencyContactId2);
+    } catch (_) {
+      return null;
+    }
   }
 
-  void _setEmergencyContact(Contact contact) {
+  String? get _emergencyContactPhone1 {
+    return _emergencyContact1?.phone;
+  }
+
+  String? get _emergencyContactPhone2 {
+    return _emergencyContact2?.phone;
+  }
+
+  void _setEmergencyContact1(Contact contact) {
     setState(() {
-      _emergencyContactId = contact.id;
-      emergencyContact = '${contact.name} ${contact.phone}';
+      if (_emergencyContactId2 == contact.id) {
+        _emergencyContactId2 = null;
+        emergencyContact2 = '未设置紧急联系人2';
+      }
+      _emergencyContactId1 = contact.id;
+      emergencyContact1 = '${contact.name} ${contact.phone}';
+    });
+  }
+
+  void _setEmergencyContact2(Contact contact) {
+    setState(() {
+      if (_emergencyContactId1 == contact.id) {
+        _emergencyContactId1 = null;
+        emergencyContact1 = '未设置紧急联系人1';
+      }
+      _emergencyContactId2 = contact.id;
+      emergencyContact2 = '${contact.name} ${contact.phone}';
     });
   }
 
   @override
   void initState() {
     super.initState();
-    _initializeServices();
-    _bootstrapAuth();
-    _loadRemindersFromBackend();
+    _initAsync();
+  }
+
+  Future<void> _initAsync() async {
+    await _initializeServices();
+    await _bootstrapAuth();
+    await _loadRemindersFromBackend();
   }
 
   Future<void> _initializeServices() async {
-    await notificationService.initialize();
+    try {
+      await notificationService.initialize();
+    } catch (e) {
+      debugPrint('通知服务初始化失败: $e');
+    }
     
-    api.setCache(widget.cache);
-    api.setSync(widget.sync);
-    widget.sync.initialize(api, authService, widget.cache);
+    try {
+      await backgroundService.initializeService();
+    } catch (e) {
+      debugPrint('后台服务初始化失败: $e');
+    }
     
-    reminderScheduler.initialize(api, widget.cache);
+    final cache = widget.cache;
+    if (cache != null) {
+      api.setCache(cache);
+      api.setSync(widget.sync);
+      widget.sync.initialize(api, authService, cache);
+      reminderScheduler.initialize(api, cache);
+    }
     
-    await reminderScheduler.loadReminders(reminders);
-    debugPrint('已加载 ${reminders.length} 个本地提醒到调度器');
+    try {
+      await reminderScheduler.loadReminders(reminders);
+      debugPrint('已加载 ${reminders.length} 个本地提醒到调度器');
+    } catch (e) {
+      debugPrint('加载提醒失败: $e');
+    }
+  }
+  
+  Future<void> _startBackgroundServiceIfNeeded() async {
+    if (fallDetection && currentUserRole == 'elder') {
+      try {
+        await backgroundService.startService(fallDetection: true);
+        debugPrint('后台跌倒检测服务已启动');
+      } catch (e) {
+        debugPrint('启动后台服务失败: $e');
+      }
+    }
   }
 
   void _triggerSOS(BuildContext context) async {
@@ -129,20 +211,33 @@ class _GuardianAppState extends State<GuardianApp> {
 
     _scaffoldMessengerKey.currentState?.showSnackBar(
       SnackBar(
-        content: Text('正在为您呼叫紧急联系人，并发送位置... (${_formatTime(now)})'),
+        content: Text('正在为您呼叫紧急联系人1，并发送位置... (${_formatTime(now)})'),
         duration: const Duration(seconds: 3),
       ),
     );
-    api.logSOS(location: currentLocation, contact: emergencyContact).catchError((_) {});
+    api.logSOS(location: currentLocation, contact: emergencyContact1).catchError((_) {});
   }
 
   void _callEmergencyContact(BuildContext context) {
-    if (_emergencyContactPhone != null && _emergencyContactPhone!.isNotEmpty) {
-      _makePhoneCall(context, _emergencyContactPhone!);
+    if (_emergencyContactPhone1 != null && _emergencyContactPhone1!.isNotEmpty) {
+      _makePhoneCall(context, _emergencyContactPhone1!);
     } else {
       _scaffoldMessengerKey.currentState?.showSnackBar(
         const SnackBar(
-          content: Text('请先设置紧急联系人电话'),
+          content: Text('请先设置紧急联系人1电话'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _callEmergencyContact2(BuildContext context) {
+    if (_emergencyContactPhone2 != null && _emergencyContactPhone2!.isNotEmpty) {
+      _makePhoneCall(context, _emergencyContactPhone2!);
+    } else {
+      _scaffoldMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Text('请先设置紧急联系人2电话'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -242,21 +337,26 @@ class _GuardianAppState extends State<GuardianApp> {
     await authService.loadFromStorage();
     api.setToken(authService.token);
     
-    final cachedToken = widget.cache.getUserToken();
-    if (cachedToken != null && authService.token == null) {
-      api.setToken(cachedToken);
+    final cache = widget.cache;
+    if (cache != null) {
+      final cachedToken = cache.getUserToken();
+      if (cachedToken != null && authService.token == null) {
+        api.setToken(cachedToken);
+      }
     }
     
     final me = await authService.me();
     if (me != null && mounted) {
-      await widget.cache.saveUserToken(me.token);
-      await widget.cache.saveUserData({
-        'id': me.id,
-        'username': me.username,
-        'displayName': me.displayName,
-        'role': me.role,
-        'elderId': me.elderId,
-      });
+      if (cache != null) {
+        await cache.saveUserToken(me.token);
+        await cache.saveUserData({
+          'id': me.id,
+          'username': me.username,
+          'displayName': me.displayName,
+          'role': me.role,
+          'elderId': me.elderId,
+        });
+      }
       
       _onAuthed(me.token, me.username, me.displayName, refreshData: false, userId: me.id, role: me.role, elderId: me.elderId);
       _loadRemindersFromBackend();
@@ -271,9 +371,11 @@ class _GuardianAppState extends State<GuardianApp> {
     } else if (!authRequired) {
       setState(() => isAuthed = false);
     } else {
-      final cachedUser = widget.cache.getUserData();
-      if (cachedUser != null) {
-        debugPrint('使用缓存的用户数据');
+      if (cache != null) {
+        final cachedUser = cache.getUserData();
+        if (cachedUser != null) {
+          debugPrint('使用缓存的用户数据');
+        }
       }
     }
   }
@@ -296,6 +398,7 @@ class _GuardianAppState extends State<GuardianApp> {
     }
     if (role == 'elder') {
       _refreshLocation();
+      _startBackgroundServiceIfNeeded();
     }
   }
 
@@ -314,7 +417,9 @@ class _GuardianAppState extends State<GuardianApp> {
   Future<void> _logout() async {
     await authService.logout();
     api.setToken(null);
-    await widget.cache.clearAll();
+    if (widget.cache != null) {
+      await widget.cache!.clearAll();
+    }
     setState(() {
       isAuthed = false;
       currentUser = null;
@@ -397,18 +502,22 @@ class _GuardianAppState extends State<GuardianApp> {
             if (isAuthed && currentUserRole == 'child')
               Column(
                 children: [
-                  ListTile(
-                    leading: const Icon(Icons.family_restroom),
-                    title: const Text('绑定老人ID'),
-                    subtitle: elderName != null 
-                        ? Text('已绑定: $elderName') 
-                        : const Text('未绑定老人ID'),
-                    onTap: () {
-                      Navigator.of(ctx).pop();
-                      _showBindElderDialog(ctx);
-                    },
-                  ),
-                  if (elderName != null)
+                  if (elderName == null)
+                    ListTile(
+                      leading: const Icon(Icons.family_restroom),
+                      title: const Text('绑定老人ID'),
+                      subtitle: const Text('未绑定老人ID'),
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _showBindElderDialog(ctx);
+                      },
+                    ),
+                  if (elderName != null) ...[
+                    ListTile(
+                      leading: const Icon(Icons.family_restroom),
+                      title: const Text('已绑定老人'),
+                      subtitle: Text('老人: $elderName'),
+                    ),
                     ListTile(
                       leading: const Icon(Icons.remove_circle),
                       title: const Text('解绑老人ID'),
@@ -418,6 +527,7 @@ class _GuardianAppState extends State<GuardianApp> {
                         _showUnbindConfirmDialog(ctx);
                       },
                     ),
+                  ],
                 ],
               ),
             if (isAuthed)
@@ -441,10 +551,10 @@ class _GuardianAppState extends State<GuardianApp> {
       if (mounted) {
         setState(() {
           family = fetched;
-          if (family.isNotEmpty && _emergencyContactId == null) {
+          if (family.isNotEmpty && _emergencyContactId1 == null) {
             final first = family.first;
-            _emergencyContactId = first.id;
-            emergencyContact = '${first.name} ${first.phone}';
+            _emergencyContactId1 = first.id;
+            emergencyContact1 = '${first.name} ${first.phone}';
           }
         });
       }
@@ -510,7 +620,7 @@ class _GuardianAppState extends State<GuardianApp> {
                 return;
               }
               try {
-                final result = await api.bindElder(int.parse(elderId));
+                final result = await api.bindElder(elderId);
                 if (result != null) {
                   final parentId = result['data']['parentId'] as int?;
                   if (parentId != null) {
@@ -579,6 +689,17 @@ class _GuardianAppState extends State<GuardianApp> {
       scaffoldMessengerKey: _scaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
       title: '安心儿-老人呵护助手',
+      locale: const Locale('zh', 'CN'),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('zh', 'CN'),
+        Locale('zh', 'TW'),
+        Locale('en', 'US'),
+      ],
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.redAccent),
         useMaterial3: true,
@@ -588,7 +709,7 @@ class _GuardianAppState extends State<GuardianApp> {
         appBar: AppBar(
           title: Text(isAuthed 
               ? currentUserRole == 'child' 
-                ? '安心儿 · ${currentUser ?? '已登录'} (${elderName ?? '老人'}的监护人)' 
+                ? '安心儿 · ${elderName ?? '老人'}的监护人' 
                 : '安心儿 · ${currentUser ?? '已登录'}' 
               : '安心儿 · 安全守护'),
           actions: [
@@ -616,8 +737,10 @@ class _GuardianAppState extends State<GuardianApp> {
                       children: [
                         SosPage(
                           lastHelpTime: lastHelpTime,
-                          contact: emergencyContact,
-                          contactPhone: _emergencyContactPhone,
+                          contact1: emergencyContact1,
+                          contact2: emergencyContact2,
+                          contactPhone1: _emergencyContactPhone1,
+                          contactPhone2: _emergencyContactPhone2,
                           onSOS: () => _triggerSOS(context),
                           locationSharing: locationSharing,
                           onLocationToggle: (v) => setState(() => locationSharing = v),
@@ -627,7 +750,8 @@ class _GuardianAppState extends State<GuardianApp> {
                           isLocating: _locating,
                           onLocationRefresh: _refreshLocation,
                           lastLocationUpdate: lastLocationUpdate,
-                          onCallEmergency: () => _callEmergencyContact(context),
+                          onCallEmergency1: () => _callEmergencyContact(context),
+                          onCallEmergency2: () => _callEmergencyContact2(context),
                         ),
                         ReminderPage(
                           reminders: reminders,
@@ -638,7 +762,14 @@ class _GuardianAppState extends State<GuardianApp> {
                         ),
                         SafetyPage(
                           fallDetection: fallDetection,
-                          onFallToggle: (v) => setState(() => fallDetection = v),
+                          onFallToggle: (v) async {
+                            setState(() => fallDetection = v);
+                            if (v) {
+                              await backgroundService.startService(fallDetection: true);
+                            } else {
+                              await backgroundService.stopService();
+                            }
+                          },
                           heartRateMonitoring: heartRateMonitoring,
                           onHeartRateToggle: (v) => setState(() => heartRateMonitoring = v),
                           heartRateService: heartRateService,
@@ -649,8 +780,10 @@ class _GuardianAppState extends State<GuardianApp> {
                           api: api,
                           isAuthed: isAuthed,
                           contacts: family,
-                          emergencyContactId: _emergencyContactId,
-                          onSetEmergency: _setEmergencyContact,
+                          emergencyContactId1: _emergencyContactId1,
+                          emergencyContactId2: _emergencyContactId2,
+                          onSetEmergency1: _setEmergencyContact1,
+                          onSetEmergency2: _setEmergencyContact2,
                           onContactsChanged: (contacts) {
                             setState(() {
                               family = contacts;

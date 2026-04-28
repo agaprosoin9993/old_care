@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class LocationResult {
   LocationResult({
@@ -37,15 +38,50 @@ class LocationService {
 
   static const MethodChannel _channel = MethodChannel('tencent_location_service');
 
-  Future<LocationResult> getCurrentLocation() async {
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      return _getTencentLocation();
+  Future<bool> requestPermission() async {
+    try {
+      final status = await Permission.location.request();
+      debugPrint('定位权限状态: $status');
+      
+      if (status.isDenied) {
+        final status2 = await Permission.location.request();
+        debugPrint('再次请求定位权限: $status2');
+      }
+      
+      if (status.isPermanentlyDenied) {
+        debugPrint('定位权限被永久拒绝，请到设置中开启');
+        await openAppSettings();
+        return false;
+      }
+      
+      return status.isGranted;
+    } catch (e) {
+      debugPrint('请求定位权限失败: $e');
+      return false;
     }
+  }
+
+  Future<LocationResult> getCurrentLocation() async {
+    debugPrint('开始获取位置...');
+    
+    final hasPermission = await requestPermission();
+    if (!hasPermission) {
+      debugPrint('没有定位权限');
+    }
+    
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final result = await _getTencentLocation();
+      if (result.locationType != '默认位置') {
+        return result;
+      }
+    }
+    
     return _getGeolocatorLocation();
   }
 
   Future<LocationResult> _getTencentLocation() async {
     try {
+      debugPrint('尝试Android原生定位...');
       final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('getCurrentLocation');
       
       if (result != null) {
@@ -58,6 +94,8 @@ class LocationService {
         final district = result['district'] as String?;
         final street = result['street'] as String?;
         final provider = result['provider'] as String?;
+
+        debugPrint('Android原生定位结果: lat=$latitude, lng=$longitude, provider=$provider');
 
         String display;
         if (address != null && address.isNotEmpty) {
@@ -82,10 +120,15 @@ class LocationService {
         );
       }
     } catch (e) {
-      debugPrint('腾讯定位失败: $e');
+      debugPrint('Android原生定位失败: $e');
     }
 
-    return _getGeolocatorLocation();
+    return LocationResult(
+      latitude: _defaultLatitude,
+      longitude: _defaultLongitude,
+      display: _defaultLocation,
+      locationType: '默认位置',
+    );
   }
 
   Future<LocationResult> _getGeolocatorLocation() async {
@@ -93,35 +136,73 @@ class LocationService {
     bool useDefault = false;
     
     try {
-      await _ensurePermission();
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      debugPrint('定位服务是否启用: $serviceEnabled');
       
-      try {
-        position = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            timeLimit: Duration(seconds: 10),
-          ),
-        );
-      } catch (e) {
-        debugPrint('高精度定位失败: $e');
-        try {
-          position = await Geolocator.getCurrentPosition(
-            locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.low,
-              timeLimit: Duration(seconds: 5),
-            ),
-          );
-        } catch (e2) {
-          debugPrint('低精度定位失败: $e2');
+      if (!serviceEnabled) {
+        debugPrint('定位服务未启用，尝试启用...');
+        serviceEnabled = await Geolocator.openLocationSettings();
+        await Future.delayed(const Duration(seconds: 2));
+        serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      }
+      
+      if (!serviceEnabled) {
+        debugPrint('定位服务仍未启用');
+        useDefault = true;
+      } else {
+        LocationPermission permission = await Geolocator.checkPermission();
+        debugPrint('当前定位权限: $permission');
+        
+        if (permission == LocationPermission.denied) {
+          debugPrint('请求定位权限...');
+          permission = await Geolocator.requestPermission();
+          debugPrint('权限请求结果: $permission');
+        }
+
+        if (permission == LocationPermission.denied) {
+          debugPrint('定位权限被拒绝');
+          useDefault = true;
+        } else if (permission == LocationPermission.deniedForever) {
+          debugPrint('定位权限被永久拒绝');
+          await Geolocator.openAppSettings();
+          useDefault = true;
+        } else {
+          debugPrint('尝试高精度定位...');
           try {
-            position = await Geolocator.getLastKnownPosition();
-          } catch (e3) {
-            debugPrint('获取最后位置失败: $e3');
+            position = await Geolocator.getCurrentPosition(
+              locationSettings: const LocationSettings(
+                accuracy: LocationAccuracy.high,
+                timeLimit: Duration(seconds: 15),
+              ),
+            );
+            debugPrint('高精度定位成功: ${position.latitude}, ${position.longitude}');
+          } catch (e) {
+            debugPrint('高精度定位失败: $e，尝试低精度...');
+            try {
+              position = await Geolocator.getCurrentPosition(
+                locationSettings: const LocationSettings(
+                  accuracy: LocationAccuracy.low,
+                  timeLimit: Duration(seconds: 10),
+                ),
+              );
+              debugPrint('低精度定位成功: ${position.latitude}, ${position.longitude}');
+            } catch (e2) {
+              debugPrint('低精度定位失败: $e2，尝试获取最后位置...');
+              try {
+                position = await Geolocator.getLastKnownPosition();
+                if (position != null) {
+                  debugPrint('获取最后位置成功: ${position.latitude}, ${position.longitude}');
+                }
+              } catch (e3) {
+                debugPrint('获取最后位置失败: $e3');
+              }
+            }
           }
         }
       }
     } catch (e) {
-      debugPrint('定位权限检查失败: $e');
+      debugPrint('定位过程出错: $e');
+      useDefault = true;
     }
     
     if (position == null) {
@@ -146,40 +227,22 @@ class LocationService {
     if (useDefault) {
       locationType = '默认位置';
       display = _defaultLocation;
-    } else if (position!.isMocked) {
+    } else if (position.isMocked) {
       locationType = '模拟定位';
-      display = '纬度 ${position.latitude.toStringAsFixed(6)}, 经度 ${position.longitude.toStringAsFixed(6)}';
+      display = '当前位置（模拟）';
     } else {
       locationType = 'GPS定位';
-      display = '纬度 ${position.latitude.toStringAsFixed(6)}, 经度 ${position.longitude.toStringAsFixed(6)}';
+      display = '当前位置';
     }
     
+    debugPrint('最终位置: ${position.latitude}, ${position.longitude}, 类型: $locationType');
+    
     return LocationResult(
-      latitude: position!.latitude,
+      latitude: position.latitude,
       longitude: position.longitude,
       display: display,
       accuracy: position.accuracy,
       locationType: locationType,
     );
-  }
-
-  Future<void> _ensurePermission() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      throw Exception('定位服务未开启');
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.denied) {
-      throw Exception('未授予定位权限');
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      throw Exception('定位权限被永久拒绝');
-    }
   }
 }

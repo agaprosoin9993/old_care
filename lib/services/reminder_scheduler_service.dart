@@ -46,10 +46,10 @@ class ReminderSchedulerService extends ChangeNotifier {
     
     _checkReminders();
     
-    _checkTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+    _checkTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       _checkReminders();
     });
-    debugPrint('定时检查已启动，每30秒检查一次');
+    debugPrint('定时检查已启动，每5秒检查一次');
   }
 
   Future<void> loadReminders(List<Reminder> reminders) async {
@@ -58,11 +58,18 @@ class ReminderSchedulerService extends ChangeNotifier {
     
     debugPrint('加载了 ${_reminders.length} 个启用的提醒');
     for (final r in _reminders) {
-      debugPrint('  提醒: ${r.title} at ${r.time.hour}:${r.time.minute}, ID: ${r.id}');
+      debugPrint('  提醒: ${r.title} at ${r.time.hour.toString().padLeft(2, '0')}:${r.time.minute.toString().padLeft(2, '0')}, ID: ${r.id}, 启用: ${r.enabled}');
     }
     
     await _ensureNotificationInitialized();
-    await _scheduleAllReminders();
+    
+    try {
+      await _notificationService.cancelAllReminders();
+      await _scheduleAllReminders();
+      debugPrint('系统通知调度完成');
+    } catch (e) {
+      debugPrint('调度系统通知失败: $e');
+    }
     
     notifyListeners();
   }
@@ -88,8 +95,12 @@ class ReminderSchedulerService extends ChangeNotifier {
     final index = _reminders.indexWhere((r) => r.id == reminder.id);
     if (index >= 0) {
       _reminders[index] = reminder;
-      await _notificationService.cancelAllReminders();
-      await _scheduleAllReminders();
+      if (reminder.enabled) {
+        await _scheduleReminder(reminder);
+      } else {
+        await _notificationService.cancelAllReminders();
+        await _scheduleAllReminders();
+      }
       notifyListeners();
     }
   }
@@ -130,9 +141,10 @@ class ReminderSchedulerService extends ChangeNotifier {
   void _checkReminders() {
     final now = DateTime.now();
     final currentMinutes = now.hour * 60 + now.minute;
+    final currentSeconds = now.second;
     final today = '${now.year}-${now.month}-${now.day}';
 
-    debugPrint('检查提醒: 当前时间 ${now.hour}:${now.minute} ($currentMinutes 分钟), 已加载 ${_reminders.length} 个提醒');
+    debugPrint('检查提醒: 当前时间 ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')} ($currentMinutes 分钟), 已加载 ${_reminders.length} 个提醒');
 
     if (_triggeredToday.isNotEmpty) {
       final lastTriggerDate = _triggeredToday.first.split('_').first;
@@ -143,12 +155,38 @@ class ReminderSchedulerService extends ChangeNotifier {
     }
 
     for (final reminder in _reminders) {
+      if (!reminder.enabled) continue;
+      
       final reminderMinutes = reminder.minutesOfDay;
       final triggerKey = '${today}_${reminder.id}';
       
-      debugPrint('  检查提醒: ${reminder.title} - 设置时间 ${reminder.time.hour}:${reminder.time.minute} ($reminderMinutes 分钟)');
+      debugPrint('  检查提醒: ${reminder.title} - 设置时间 ${reminder.time.hour.toString().padLeft(2, '0')}:${reminder.time.minute.toString().padLeft(2, '0')} ($reminderMinutes 分钟)');
       
-      if (reminderMinutes == currentMinutes && !_triggeredToday.contains(triggerKey)) {
+      if (_triggeredToday.contains(triggerKey)) {
+        debugPrint('    已触发过，跳过');
+        continue;
+      }
+      
+      final minuteDiff = currentMinutes - reminderMinutes;
+      
+      bool shouldTrigger = false;
+      
+      if (minuteDiff == 0) {
+        shouldTrigger = true;
+        debugPrint('    分钟完全匹配，准备触发');
+      } else if (minuteDiff == 1 && currentSeconds <= 30) {
+        shouldTrigger = true;
+        debugPrint('    分钟差1且秒数<=30，准备触发');
+      } else if (minuteDiff < 0 && minuteDiff >= -1 && currentSeconds >= 30) {
+        final effectiveMinutes = currentMinutes * 60 + currentSeconds;
+        final reminderSeconds = reminderMinutes * 60;
+        if ((reminderSeconds - effectiveMinutes).abs() <= 30) {
+          shouldTrigger = true;
+          debugPrint('    时间窗口内匹配，准备触发');
+        }
+      }
+      
+      if (shouldTrigger && !_triggeredToday.contains(triggerKey)) {
         debugPrint('>>> 时间匹配! 触发提醒: ${reminder.title}');
         _triggeredToday.add(triggerKey);
         _triggerReminder(reminder);

@@ -107,6 +107,35 @@ public class AuthService {
     }
 
     @Transactional
+    public UserInfo bindElderByElderId(Long userId, String elderId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("user not found"));
+
+        if (!"child".equals(user.getRole())) {
+            throw new RuntimeException("only child users can bind elder");
+        }
+
+        User elder = userRepository.findByElderId(elderId)
+                .orElseThrow(() -> new RuntimeException("老人ID不存在，请检查输入"));
+
+        if (!"elder".equals(elder.getRole())) {
+            throw new RuntimeException("该ID对应的用户不是老人账号");
+        }
+
+        user.setParentId(elder.getId());
+        user = userRepository.save(user);
+
+        return UserInfo.of(
+                user.getId(),
+                user.getUsername(),
+                user.getDisplayName(),
+                user.getRole(),
+                user.getParentId(),
+                user.getElderId()
+        );
+    }
+
+    @Transactional
     public UserInfo updateParentId(Long userId, Long parentId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("user not found"));

@@ -9,16 +9,20 @@ class FamilyPage extends StatefulWidget {
     required this.api,
     required this.isAuthed,
     required this.contacts,
-    this.emergencyContactId,
-    required this.onSetEmergency,
+    this.emergencyContactId1,
+    this.emergencyContactId2,
+    required this.onSetEmergency1,
+    required this.onSetEmergency2,
     required this.onContactsChanged,
   });
 
   final ApiClient api;
   final bool isAuthed;
   final List<Contact> contacts;
-  final int? emergencyContactId;
-  final ValueChanged<Contact> onSetEmergency;
+  final int? emergencyContactId1;
+  final int? emergencyContactId2;
+  final ValueChanged<Contact> onSetEmergency1;
+  final ValueChanged<Contact> onSetEmergency2;
   final ValueChanged<List<Contact>> onContactsChanged;
 
   @override
@@ -116,7 +120,7 @@ class _FamilyPageState extends State<FamilyPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            '点击星标可设置紧急联系人，将显示在SOS求助页面',
+            '点击星标设置紧急联系人1，点击心标设置紧急联系人2',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 12),
@@ -132,15 +136,16 @@ class _FamilyPageState extends State<FamilyPage> {
   }
 
   Widget _buildContactCard(Contact c) {
-    final isEmergency = c.id == widget.emergencyContactId;
+    final isEmergency1 = c.id == widget.emergencyContactId1;
+    final isEmergency2 = c.id == widget.emergencyContactId2;
     return Card(
-      elevation: isEmergency ? 2 : 0,
-      color: isEmergency ? Colors.red.shade50 : null,
+      elevation: (isEmergency1 || isEmergency2) ? 2 : 0,
+      color: isEmergency1 ? Colors.red.shade50 : (isEmergency2 ? Colors.orange.shade50 : null),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(
-          color: isEmergency ? Colors.red.shade200 : Colors.grey.shade200,
-          width: isEmergency ? 1.5 : 1,
+          color: isEmergency1 ? Colors.red.shade200 : (isEmergency2 ? Colors.orange.shade200 : Colors.grey.shade200),
+          width: (isEmergency1 || isEmergency2) ? 1.5 : 1,
         ),
       ),
       child: Padding(
@@ -149,18 +154,36 @@ class _FamilyPageState extends State<FamilyPage> {
           children: [
             GestureDetector(
               onTap: () {
-                widget.onSetEmergency(c);
+                widget.onSetEmergency1(c);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('已将 ${c.name} 设为紧急联系人'),
+                    content: Text('已将 ${c.name} 设为紧急联系人1'),
                     behavior: SnackBarBehavior.floating,
                     duration: const Duration(seconds: 2),
                   ),
                 );
               },
               child: Icon(
-                isEmergency ? Icons.star : Icons.star_border,
-                color: isEmergency ? Colors.amber : Colors.grey,
+                isEmergency1 ? Icons.star : Icons.star_border,
+                color: isEmergency1 ? Colors.amber : Colors.grey,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () {
+                widget.onSetEmergency2(c);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('已将 ${c.name} 设为紧急联系人2'),
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              },
+              child: Icon(
+                isEmergency2 ? Icons.favorite : Icons.favorite_border,
+                color: isEmergency2 ? Colors.redAccent : Colors.grey,
                 size: 28,
               ),
             ),
@@ -172,7 +195,7 @@ class _FamilyPageState extends State<FamilyPage> {
                   Row(
                     children: [
                       Text(c.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-                      if (isEmergency) ...[
+                      if (isEmergency1) ...[
                         const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -181,8 +204,22 @@ class _FamilyPageState extends State<FamilyPage> {
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: const Text(
-                            '紧急联系人',
+                            '紧急联系人1',
                             style: TextStyle(fontSize: 10, color: Colors.red),
+                          ),
+                        ),
+                      ],
+                      if (isEmergency2) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade100,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            '紧急联系人2',
+                            style: TextStyle(fontSize: 10, color: Colors.orange),
                           ),
                         ),
                       ],

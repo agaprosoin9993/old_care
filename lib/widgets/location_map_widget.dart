@@ -39,9 +39,12 @@ class _LocationMapWidgetState extends State<LocationMapWidget> {
   @override
   void didUpdateWidget(LocationMapWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.markers != oldWidget.markers && _mapChannel != null) {
+    
+    if (_markersChanged(oldWidget.markers, widget.markers) && _mapChannel != null) {
+      debugPrint('标记点已更新，数量: ${widget.markers.length}');
       _updateMarkers();
     }
+    
     if (widget.center != oldWidget.center && widget.center != null) {
       _latitude = widget.center.latitude;
       _longitude = widget.center.longitude;
@@ -51,15 +54,29 @@ class _LocationMapWidgetState extends State<LocationMapWidget> {
     }
   }
 
+  bool _markersChanged(List<MapMarker> oldMarkers, List<MapMarker> newMarkers) {
+    if (oldMarkers.length != newMarkers.length) return true;
+    
+    for (int i = 0; i < oldMarkers.length; i++) {
+      if (oldMarkers[i].position?.latitude != newMarkers[i].position?.latitude ||
+          oldMarkers[i].position?.longitude != newMarkers[i].position?.longitude) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   void _onPlatformViewCreated(int id) {
     _mapChannel = MethodChannel('tencent_map_$id');
+    debugPrint('地图视图已创建，ID: $id');
+    
     widget.onMapReady?.call();
     
     if (_latitude != null && _longitude != null) {
       _moveToLocation(_latitude!, _longitude!);
     }
     
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    Future.delayed(const Duration(milliseconds: 100), () {
       _updateMarkers();
     });
   }
@@ -68,15 +85,17 @@ class _LocationMapWidgetState extends State<LocationMapWidget> {
     if (_mapChannel == null) return;
     
     try {
+      debugPrint('更新标记点，数量: ${widget.markers.length}');
       await _mapChannel?.invokeMethod('clearMarkers');
       
       for (final marker in widget.markers) {
         if (marker.position != null) {
+          debugPrint('添加标记点: ${marker.label} at ${marker.position!.latitude}, ${marker.position!.longitude}');
           await _mapChannel?.invokeMethod('addMarker', {
             'latitude': marker.position!.latitude,
             'longitude': marker.position!.longitude,
             'title': marker.label ?? '',
-            'color': marker.color?.toARGB32().toRadixString(16) ?? 'red',
+            'color': marker.color?.toARGB32().toRadixString(16) ?? 'ffff0000',
           });
         }
       }
@@ -92,6 +111,7 @@ class _LocationMapWidgetState extends State<LocationMapWidget> {
         'longitude': lng,
         'zoom': _currentZoom,
       });
+      debugPrint('移动地图到: $lat, $lng');
     } catch (e) {
       debugPrint('移动地图失败: $e');
     }

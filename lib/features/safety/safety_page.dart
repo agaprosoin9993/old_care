@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'heart_rate_dialog.dart';
 import '../../services/heart_rate_service.dart';
@@ -29,6 +30,8 @@ class SafetyPage extends StatefulWidget {
 
 class _SafetyPageState extends State<SafetyPage> {
   bool _fallAlertShown = false;
+  Timer? _fallCountdownTimer;
+  bool _fallHandled = false;
 
   @override
   void initState() {
@@ -36,58 +39,154 @@ class _SafetyPageState extends State<SafetyPage> {
     _setupFallDetection();
   }
 
+  @override
+  void dispose() {
+    _fallCountdownTimer?.cancel();
+    super.dispose();
+  }
+
   void _setupFallDetection() {
     widget.fallDetectionService.onFallDetected = () {
       if (mounted && !_fallAlertShown) {
         _fallAlertShown = true;
+        _fallHandled = false;
         _showFallAlert();
-        widget.onFallDetected?.call();
       }
     };
   }
 
   void _showFallAlert() {
+    _fallCountdownTimer?.cancel();
+    int countdown = 15;
+    
+    _fallCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_fallHandled) {
+        timer.cancel();
+        return;
+      }
+      
+      countdown--;
+      
+      if (countdown <= 0) {
+        timer.cancel();
+        if (!_fallHandled && mounted) {
+          Navigator.of(context, rootNavigator: true).pop();
+          _triggerSOS();
+        }
+      }
+    });
+
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.warning, color: Colors.red),
-            const SizedBox(width: 8),
-            const Text('跌倒检测'),
-          ],
-        ),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('系统检测到可能发生了跌倒！'),
-            SizedBox(height: 12),
-            Text('如果您需要帮助，请点击SOS按钮。'),
-            Text('如果这是误报，请点击"我没事"。'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              setState(() => _fallAlertShown = false);
-              widget.fallDetectionService.resetFallStatus();
-            },
-            child: const Text('我没事'),
+      builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => PopScope(
+            canPop: false,
+            child: AlertDialog(
+            title: Row(
+              children: [
+                const Icon(Icons.warning, color: Colors.red),
+                const SizedBox(width: 8),
+                const Text('跌倒检测'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('系统检测到可能发生了跌倒！'),
+                const SizedBox(height: 16),
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 1.0, end: 0.0),
+                  duration: const Duration(seconds: 15),
+                  builder: (context, value, child) {
+                    return Column(
+                      children: [
+                        SizedBox(
+                          width: 80,
+                          height: 80,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              CircularProgressIndicator(
+                                value: value,
+                                strokeWidth: 6,
+                                backgroundColor: Colors.grey.shade300,
+                                valueColor: const AlwaysStoppedAnimation(Colors.red),
+                              ),
+                              Center(
+                                child: Text(
+                                  '${(value * 15).ceil()}',
+                                  style: const TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.red,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          '秒后自动求助',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  '如果这是误报，请点击"我没事"取消',
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  _fallHandled = true;
+                  _fallCountdownTimer?.cancel();
+                  Navigator.of(dialogContext).pop();
+                  setState(() {
+                    _fallAlertShown = false;
+                  });
+                  widget.fallDetectionService.resetFallStatus();
+                },
+                child: const Text('我没事', style: TextStyle(fontSize: 16)),
+              ),
+              FilledButton(
+                onPressed: () {
+                  _fallHandled = true;
+                  _fallCountdownTimer?.cancel();
+                  Navigator.of(dialogContext).pop();
+                  _triggerSOS();
+                },
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('立即求助', style: TextStyle(fontSize: 16)),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              setState(() => _fallAlertShown = false);
-              widget.onFallDetected?.call();
-            },
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('立即求助'),
-          ),
-        ],
+        ),
       ),
-    );
+    ).then((_) {
+      if (!_fallHandled) {
+        setState(() {
+          _fallAlertShown = false;
+        });
+        widget.fallDetectionService.resetFallStatus();
+      }
+    });
+  }
+
+  void _triggerSOS() {
+    setState(() {
+      _fallAlertShown = false;
+    });
+    widget.onFallDetected?.call();
   }
 
   @override
@@ -174,22 +273,26 @@ class _SafetyPageState extends State<SafetyPage> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
+                          const Text(
                             '跌倒检测已开启',
                             style: TextStyle(
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-                          SizedBox(height: 2),
+                          const SizedBox(height: 2),
                           Text(
-                            '传感器正在后台运行监测中',
+                            widget.fallDetectionService.impactDetected 
+                                ? '已检测到撞击，等待静止...' 
+                                : '传感器正在后台运行监测中',
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.grey,
+                              color: widget.fallDetectionService.impactDetected 
+                                  ? Colors.orange 
+                                  : Colors.grey,
                             ),
                           ),
                         ],
@@ -199,11 +302,16 @@ class _SafetyPageState extends State<SafetyPage> {
                       width: 8,
                       height: 8,
                       decoration: BoxDecoration(
-                        color: Colors.green,
+                        color: widget.fallDetectionService.impactDetected 
+                            ? Colors.orange 
+                            : Colors.green,
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.green.withOpacity(0.5),
+                            color: (widget.fallDetectionService.impactDetected 
+                                    ? Colors.orange 
+                                    : Colors.green)
+                                .withOpacity(0.5),
                             blurRadius: 8,
                             spreadRadius: 2,
                           ),
@@ -211,6 +319,75 @@ class _SafetyPageState extends State<SafetyPage> {
                       ),
                     ),
                   ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildCard(
+              child: InkWell(
+                onTap: () {
+                  widget.fallDetectionService.simulateFall();
+                },
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade100,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.science,
+                          color: Colors.orange,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '模拟跌倒测试',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              '点击立即触发跌倒警报（演示用）',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.orange,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text(
+                          '测试',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

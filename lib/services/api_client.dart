@@ -270,11 +270,14 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>?> bindElder(int elderId) async {
+  Future<Map<String, dynamic>?> bindElder(String elderId) async {
     if (!enabled) return null;
     try {
       final resp = await http.put(_u('/auth/bind-elder?elderId=$elderId'), headers: _headers()).timeout(const Duration(seconds: 5));
-      if (resp.statusCode != 200) throw HttpException('bind elder failed ${resp.statusCode}');
+      if (resp.statusCode != 200) {
+        final body = jsonDecode(resp.body) as Map<String, dynamic>;
+        throw Exception(body['message'] ?? '绑定失败 ${resp.statusCode}');
+      }
       return jsonDecode(resp.body) as Map<String, dynamic>;
     } catch (e) {
       print('bindElder error: $e');
@@ -422,6 +425,20 @@ class ApiClient {
       return resp.statusCode == 200;
     } catch (e) {
       print('deleteSosLog error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> remindElderAboutReminder(int reminderId) async {
+    if (!enabled) return false;
+    try {
+      final resp = await http.post(
+        _u('/child/elder/reminders/$reminderId/remind'),
+        headers: _headers(),
+      ).timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (e) {
+      debugPrint('提醒老人失败: $e');
       return false;
     }
   }

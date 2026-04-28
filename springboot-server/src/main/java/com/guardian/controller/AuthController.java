@@ -90,7 +90,7 @@ public class AuthController {
     }
 
     @PutMapping("/bind-elder")
-    public ResponseEntity<?> bindElder(@RequestHeader(value = "Authorization", required = false) String authHeader, @RequestParam Long elderId) {
+    public ResponseEntity<?> bindElder(@RequestHeader(value = "Authorization", required = false) String authHeader, @RequestParam String elderId) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("unauthorized"));
@@ -104,7 +104,7 @@ public class AuthController {
         }
 
         try {
-            UserInfo updatedUser = authService.updateParentId(userIdOpt.get(), elderId);
+            UserInfo updatedUser = authService.bindElderByElderId(userIdOpt.get(), elderId);
             return ResponseEntity.ok(ApiResponse.success(updatedUser, "绑定成功"));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));

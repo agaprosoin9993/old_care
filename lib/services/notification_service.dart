@@ -16,31 +16,44 @@ class NotificationService {
   Future<void> initialize() async {
     if (_initialized || kIsWeb) return;
 
-    tz_data.initializeTimeZones();
-    tz.setLocalLocation(tz.getLocation('Asia/Shanghai'));
+    try {
+      tz_data.initializeTimeZones();
+      try {
+        tz.setLocalLocation(tz.getLocation('Asia/Shanghai'));
+      } catch (e) {
+        debugPrint('设置时区失败，使用本地时区: $e');
+        try {
+          tz.setLocalLocation(tz.getLocation('UTC'));
+        } catch (_) {
+          debugPrint('设置UTC时区也失败');
+        }
+      }
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosSettings = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-    );
+      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const iosSettings = DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+      );
 
-    const initSettings = InitializationSettings(
-      android: androidSettings,
-      iOS: iosSettings,
-    );
+      const initSettings = InitializationSettings(
+        android: androidSettings,
+        iOS: iosSettings,
+      );
 
-    await _notifications.initialize(
-      initSettings,
-      onDidReceiveNotificationResponse: _onNotificationTapped,
-    );
+      await _notifications.initialize(
+        initSettings,
+        onDidReceiveNotificationResponse: _onNotificationTapped,
+      );
 
-    await _requestPermissions();
-    await _createNotificationChannels();
+      await _requestPermissions();
+      await _createNotificationChannels();
 
-    _initialized = true;
-    debugPrint('通知服务初始化完成，时区: Asia/Shanghai');
+      _initialized = true;
+      debugPrint('通知服务初始化完成，时区: ${tz.local.name}');
+    } catch (e) {
+      debugPrint('通知服务初始化失败: $e');
+    }
   }
 
   Future<void> _createNotificationChannels() async {
@@ -178,93 +191,99 @@ class NotificationService {
   }) async {
     if (kIsWeb) return;
 
-    await _cancelReminder(id);
+    try {
+      await _cancelReminder(id);
 
-    final now = DateTime.now();
-    var scheduledDate = DateTime(now.year, now.month, now.day, hour, minute);
-    
-    if (scheduledDate.isBefore(now)) {
-      scheduledDate = scheduledDate.add(const Duration(days: 1));
-    }
+      final now = DateTime.now();
+      var scheduledDate = DateTime(now.year, now.month, now.day, hour, minute);
+      
+      if (scheduledDate.isBefore(now)) {
+        scheduledDate = scheduledDate.add(const Duration(days: 1));
+      }
 
-    final tzScheduledDate = tz.TZDateTime.from(scheduledDate, tz.local);
+      final tzScheduledDate = tz.TZDateTime.from(scheduledDate, tz.local);
+      debugPrint('计划提醒: $title at $tzScheduledDate');
 
-    final androidDetails = AndroidNotificationDetails(
-      'reminder_alerts',
-      '用药提醒',
-      channelDescription: '老人用药提醒通知',
-      importance: Importance.max,
-      priority: Priority.max,
-      showWhen: true,
-      icon: '@mipmap/ic_launcher',
-      playSound: true,
-      fullScreenIntent: true,
-      category: AndroidNotificationCategory.alarm,
-      enableVibration: true,
-      vibrationPattern: Int64List.fromList([0, 300, 100, 300]),
-    );
-
-    final iosDetails = const DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      interruptionLevel: InterruptionLevel.timeSensitive,
-    );
-
-    final notificationDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    if (repeatType == 'daily') {
-      await _notifications.zonedSchedule(
-        id,
-        '⏰ 用药提醒',
-        title,
-        tzScheduledDate,
-        notificationDetails,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.time,
-        payload: 'reminder_alert:$id',
+      final androidDetails = AndroidNotificationDetails(
+        'reminder_alerts',
+        '用药提醒',
+        channelDescription: '老人用药提醒通知',
+        importance: Importance.max,
+        priority: Priority.max,
+        showWhen: true,
+        icon: '@mipmap/ic_launcher',
+        playSound: true,
+        fullScreenIntent: true,
+        category: AndroidNotificationCategory.alarm,
+        enableVibration: true,
+        vibrationPattern: Int64List.fromList([0, 300, 100, 300]),
+        channelAction: AndroidNotificationChannelAction.createIfNotExists,
       );
-      debugPrint('已设置每日提醒: $title at $hour:$minute (ID: $id)');
-    } else if (repeatType == 'weekly' && weekdays.isNotEmpty) {
-      for (final weekday in weekdays) {
-        final weekdayId = id * 10 + weekday;
-        var weekDate = scheduledDate;
-        
-        while (weekDate.weekday != weekday) {
-          weekDate = weekDate.add(const Duration(days: 1));
-        }
-        
-        final tzWeekDate = tz.TZDateTime.from(weekDate, tz.local);
-        
+
+      final iosDetails = const DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        interruptionLevel: InterruptionLevel.timeSensitive,
+      );
+
+      final notificationDetails = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+
+      if (repeatType == 'daily') {
         await _notifications.zonedSchedule(
-          weekdayId,
+          id,
           '⏰ 用药提醒',
           title,
-          tzWeekDate,
+          tzScheduledDate,
           notificationDetails,
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
           uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-          matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+          matchDateTimeComponents: DateTimeComponents.time,
           payload: 'reminder_alert:$id',
         );
-        debugPrint('已设置每周${weekday}提醒: $title at $hour:$minute (ID: $weekdayId)');
+        debugPrint('已设置每日提醒: $title at $hour:$minute (ID: $id)');
+      } else if (repeatType == 'weekly' && weekdays.isNotEmpty) {
+        for (final weekday in weekdays) {
+          final weekdayId = id * 10 + weekday;
+          var weekDate = scheduledDate;
+          
+          while (weekDate.weekday != weekday) {
+            weekDate = weekDate.add(const Duration(days: 1));
+          }
+          
+          final tzWeekDate = tz.TZDateTime.from(weekDate, tz.local);
+          
+          await _notifications.zonedSchedule(
+            weekdayId,
+            '⏰ 用药提醒',
+            title,
+            tzWeekDate,
+            notificationDetails,
+            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+            uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+            matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+            payload: 'reminder_alert:$id',
+          );
+          debugPrint('已设置每周${weekday}提醒: $title at $hour:$minute (ID: $weekdayId)');
+        }
+      } else {
+        await _notifications.zonedSchedule(
+          id,
+          '⏰ 用药提醒',
+          title,
+          tzScheduledDate,
+          notificationDetails,
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+          payload: 'reminder_alert:$id',
+        );
+        debugPrint('已设置单次提醒: $title at $hour:$minute (ID: $id)');
       }
-    } else {
-      await _notifications.zonedSchedule(
-        id,
-        '⏰ 用药提醒',
-        title,
-        tzScheduledDate,
-        notificationDetails,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        payload: 'reminder_alert:$id',
-      );
-      debugPrint('已设置单次提醒: $title at $hour:$minute (ID: $id)');
+    } catch (e) {
+      debugPrint('设置提醒失败: $e');
     }
   }
 

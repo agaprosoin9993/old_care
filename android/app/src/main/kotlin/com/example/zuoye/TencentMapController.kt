@@ -2,6 +2,7 @@ package com.example.zuoye
 
 import android.app.Application
 import android.content.Context
+import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import com.tencent.tencentmap.mapsdk.maps.MapView
@@ -9,6 +10,8 @@ import com.tencent.tencentmap.mapsdk.maps.TencentMap
 import com.tencent.tencentmap.mapsdk.maps.CameraUpdateFactory
 import com.tencent.tencentmap.mapsdk.maps.model.LatLng
 import com.tencent.tencentmap.mapsdk.maps.model.MarkerOptions
+import com.tencent.tencentmap.mapsdk.maps.model.BitmapDescriptor
+import com.tencent.tencentmap.mapsdk.maps.model.BitmapDescriptorFactory
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.platform.PlatformView
 
@@ -115,14 +118,65 @@ class TencentMapController(
     }
 
     private fun addMarker(latitude: Double, longitude: Double, title: String, color: String?) {
+        val hue = getMarkerHue(color)
+        
         val markerOptions = MarkerOptions()
             .position(LatLng(latitude, longitude))
             .title(title)
             .anchor(0.5f, 1f)
+            .icon(BitmapDescriptorFactory.defaultMarker(hue))
         
         tencentMap?.addMarker(markerOptions)?.let { marker ->
             markers.add(marker)
         }
+    }
+
+    private fun getMarkerHue(colorString: String?): Float {
+        if (colorString.isNullOrEmpty()) return BitmapDescriptorFactory.HUE_RED
+        
+        return try {
+            var hex = colorString.replace("#", "")
+            if (hex.length == 8) {
+                hex = hex.substring(2)
+            }
+            val color = Color.parseColor("#$hex")
+            
+            when {
+                color == Color.RED -> BitmapDescriptorFactory.HUE_RED
+                color == Color.BLUE -> BitmapDescriptorFactory.HUE_BLUE
+                color == Color.GREEN -> BitmapDescriptorFactory.HUE_GREEN
+                color == Color.YELLOW -> BitmapDescriptorFactory.HUE_YELLOW
+                color == Color.MAGENTA -> BitmapDescriptorFactory.HUE_MAGENTA
+                color == Color.CYAN -> BitmapDescriptorFactory.HUE_CYAN
+                isBlueColor(color) -> BitmapDescriptorFactory.HUE_BLUE
+                isRedColor(color) -> BitmapDescriptorFactory.HUE_RED
+                isGreenColor(color) -> BitmapDescriptorFactory.HUE_GREEN
+                else -> BitmapDescriptorFactory.HUE_RED
+            }
+        } catch (e: Exception) {
+            BitmapDescriptorFactory.HUE_RED
+        }
+    }
+    
+    private fun isBlueColor(color: Int): Boolean {
+        val r = Color.red(color)
+        val g = Color.green(color)
+        val b = Color.blue(color)
+        return b > r && b > g
+    }
+    
+    private fun isRedColor(color: Int): Boolean {
+        val r = Color.red(color)
+        val g = Color.green(color)
+        val b = Color.blue(color)
+        return r > g && r > b
+    }
+    
+    private fun isGreenColor(color: Int): Boolean {
+        val r = Color.red(color)
+        val g = Color.green(color)
+        val b = Color.blue(color)
+        return g > r && g > b
     }
 
     private fun clearMarkers() {

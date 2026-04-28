@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../services/api_client.dart';
 import '../../services/notification_service.dart';
+import '../../services/location_service.dart';
 import '../../models/reminder.dart';
 import '../../widgets/location_map_widget.dart';
 
@@ -46,6 +46,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
 
   Timer? _pollingTimer;
   final NotificationService _notificationService = NotificationService();
+  final LocationService _locationService = LocationService();
 
   @override
   void initState() {
@@ -104,31 +105,25 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
     setState(() => _isLoadingMyLocation = true);
     
     try {
-      const channel = MethodChannel('tencent_location_service');
-      final result = await channel.invokeMethod<Map<dynamic, dynamic>>('getCurrentLocation');
+      final result = await _locationService.getCurrentLocation();
       
-      if (result != null) {
-        final latitude = (result['latitude'] as num).toDouble();
-        final longitude = (result['longitude'] as num).toDouble();
-        
-        if (mounted) {
-          setState(() {
-            _myLatitude = latitude;
-            _myLongitude = longitude;
-          });
-        }
-        return;
+      if (mounted) {
+        setState(() {
+          _myLatitude = result.latitude;
+          _myLongitude = result.longitude;
+          _isLoadingMyLocation = false;
+        });
+        debugPrint('子女端位置: ${result.latitude}, ${result.longitude}, 类型: ${result.locationType}');
       }
     } catch (e) {
-      debugPrint('腾讯定位失败: $e');
-    }
-
-    if (mounted) {
-      setState(() {
-        _myLatitude = 39.9042;
-        _myLongitude = 116.4074;
-        _isLoadingMyLocation = false;
-      });
+      debugPrint('获取子女端位置失败: $e');
+      if (mounted) {
+        setState(() {
+          _myLatitude = 39.9042;
+          _myLongitude = 116.4074;
+          _isLoadingMyLocation = false;
+        });
+      }
     }
   }
 
@@ -202,6 +197,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
 
     try {
       final result = await widget.api.getElderLocation();
+      debugPrint('获取老人位置结果: $result');
       if (result != null && mounted) {
         setState(() {
           _elderLocation = result['location'] as String? ?? '未知位置';
@@ -211,6 +207,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
           if (result['latitude'] != null && result['longitude'] != null) {
             _elderLatitude = (result['latitude'] as num).toDouble();
             _elderLongitude = (result['longitude'] as num).toDouble();
+            debugPrint('老人位置: $_elderLatitude, $_elderLongitude');
           }
         });
       }
@@ -330,6 +327,23 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
     }
   }
 
+  String _formatLocation(String? location) {
+    if (location == null || location.isEmpty || location == '未获取') {
+      return '未知位置';
+    }
+    
+    final latLngPattern = RegExp(r'^纬度\s*[\d.]+,?\s*经度\s*[\d.]+$');
+    if (latLngPattern.hasMatch(location)) {
+      return '已获取位置';
+    }
+    
+    if (location == '当前位置' || location == '当前位置（模拟）') {
+      return '已获取位置';
+    }
+    
+    return location;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -414,6 +428,11 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
   }
 
   Widget _buildMapCard() {
+    final hasElderLocation = _elderLatitude != null && _elderLongitude != null;
+    final hasMyLocation = _myLatitude != null && _myLongitude != null;
+    
+    debugPrint('地图状态 - 老人位置: $hasElderLocation ($_elderLatitude, $_elderLongitude), 我的位置: $hasMyLocation ($_myLatitude, $_myLongitude)');
+    
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -430,6 +449,14 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.blue, size: 20),
+                  onPressed: () {
+                    _loadElderLocation();
+                    _loadMyLocation();
+                  },
+                  tooltip: '刷新位置',
+                ),
                 if (_isLoadingLocation || _isLoadingMyLocation)
                   const SizedBox(
                     width: 16,
@@ -462,13 +489,21 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
                 ),
             ],
           ),
-          Padding(
-            padding: const EdgeInsets.all(12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              border: Border(top: BorderSide(color: Colors.grey.shade200)),
+            ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildLegendItem(Colors.red, '老人位置', Icons.elderly),
-                _buildLegendItem(Colors.blue, '我的位置', Icons.person_pin_circle),
+                Expanded(
+                  child: _buildLegendItem(Colors.red, '老人位置', Icons.location_on),
+                ),
+                Container(width: 1, height: 20, color: Colors.grey.shade300),
+                Expanded(
+                  child: _buildLegendItem(Colors.blue, '我的位置', Icons.person_pin_circle),
+                ),
               ],
             ),
           ),
@@ -479,10 +514,18 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
 
   Widget _buildLegendItem(Color color, String label, IconData icon) {
     return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(width: 4),
-        Text(label, style: const TextStyle(fontSize: 12)),
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
       ],
     );
   }
@@ -757,7 +800,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
                                 subtitle: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text('位置: ${log['location'] ?? '未知'}'),
+                                    Text('位置: ${_formatLocation(log['location'] as String?)}'),
                                     Text('联系人: ${log['contact'] ?? '未知'}'),
                                   ],
                                 ),
@@ -813,7 +856,7 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
           children: [
             _buildDetailRow(Icons.access_time, '时间', _formatDateTime(createdAt)),
             const SizedBox(height: 12),
-            _buildDetailRow(Icons.location_on, '位置', log['location'] ?? '未知'),
+            _buildDetailRow(Icons.location_on, '位置', _formatLocation(log['location'] as String?)),
             const SizedBox(height: 12),
             _buildDetailRow(Icons.person, '联系人', log['contact'] ?? '未知'),
             if (log['note'] != null && log['note'].toString().isNotEmpty) ...[
@@ -932,33 +975,128 @@ class _ChildHomePageState extends State<ChildHomePage> with WidgetsBindingObserv
   }
 
   Widget _buildReminderCard(Reminder reminder) {
+    final now = DateTime.now();
+    final reminderTime = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      reminder.time.hour,
+      reminder.time.minute,
+    );
+    final isOverdue = !reminder.completed && now.isAfter(reminderTime);
+    
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: reminder.completed ? Colors.green.shade50 : Colors.orange.shade50,
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            reminder.completed ? Icons.check : Icons.alarm,
-            color: reminder.completed ? Colors.green : Colors.orange,
-          ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: reminder.completed ? Colors.green.shade50 : (isOverdue ? Colors.red.shade50 : Colors.orange.shade50),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    reminder.completed ? Icons.check : (isOverdue ? Icons.warning : Icons.alarm),
+                    color: reminder.completed ? Colors.green : (isOverdue ? Colors.red : Colors.orange),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        reminder.title,
+                        style: TextStyle(
+                          decoration: reminder.completed ? TextDecoration.lineThrough : null,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${reminder.formattedTime} ${reminder.repeatType == RepeatType.daily ? '(每日重复)' : reminder.repeatLabel}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: reminder.completed 
+                        ? Colors.green.shade50 
+                        : (isOverdue ? Colors.red.shade50 : Colors.orange.shade50),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    reminder.completed ? '已完成' : (isOverdue ? '已超时' : '待完成'),
+                    style: TextStyle(
+                      color: reminder.completed ? Colors.green : (isOverdue ? Colors.red : Colors.orange),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (isOverdue && !reminder.completed) ...[
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  FilledButton.icon(
+                    onPressed: () => _remindElderAboutReminder(reminder),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    ),
+                    icon: const Icon(Icons.notifications_active, size: 18),
+                    label: const Text('提醒老人'),
+                  ),
+                ],
+              ),
+            ],
+          ],
         ),
-        title: Text(
-          reminder.title,
-          style: TextStyle(
-            decoration: reminder.completed ? TextDecoration.lineThrough : null,
-          ),
-        ),
-        subtitle: Text(
-          '${reminder.formattedTime} ${reminder.repeatType == RepeatType.daily ? '(每日重复)' : reminder.repeatLabel}',
-        ),
-        trailing: reminder.completed
-            ? const Text('已完成', style: TextStyle(color: Colors.green))
-            : const Text('待完成', style: TextStyle(color: Colors.orange)),
       ),
     );
+  }
+
+  Future<void> _remindElderAboutReminder(Reminder reminder) async {
+    if (reminder.id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('提醒ID无效')),
+      );
+      return;
+    }
+
+    final success = await widget.api.remindElderAboutReminder(reminder.id!);
+    if (mounted) {
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已向${widget.elderName ?? '老人'}发送提醒: ${reminder.title}'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('提醒发送失败，请重试'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 }

@@ -6,8 +6,10 @@ class SosPage extends StatelessWidget {
   const SosPage({
     super.key,
     required this.lastHelpTime,
-    required this.contact,
-    this.contactPhone,
+    required this.contact1,
+    required this.contact2,
+    this.contactPhone1,
+    this.contactPhone2,
     required this.onSOS,
     required this.locationSharing,
     required this.onLocationToggle,
@@ -17,12 +19,15 @@ class SosPage extends StatelessWidget {
     this.isLocating = false,
     required this.onLocationRefresh,
     required this.lastLocationUpdate,
-    this.onCallEmergency,
+    this.onCallEmergency1,
+    this.onCallEmergency2,
   });
 
   final DateTime? lastHelpTime;
-  final String contact;
-  final String? contactPhone;
+  final String contact1;
+  final String contact2;
+  final String? contactPhone1;
+  final String? contactPhone2;
   final VoidCallback onSOS;
   final bool locationSharing;
   final ValueChanged<bool> onLocationToggle;
@@ -32,7 +37,8 @@ class SosPage extends StatelessWidget {
   final bool isLocating;
   final VoidCallback onLocationRefresh;
   final DateTime? lastLocationUpdate;
-  final VoidCallback? onCallEmergency;
+  final VoidCallback? onCallEmergency1;
+  final VoidCallback? onCallEmergency2;
 
   Future<void> _makePhoneCall(BuildContext context, String phoneNumber) async {
     final Uri phoneUri = Uri(scheme: 'tel', path: phoneNumber);
@@ -61,13 +67,26 @@ class SosPage extends StatelessWidget {
     }
   }
 
-  void _callEmergencyContact(BuildContext context) {
-    if (contactPhone != null && contactPhone!.isNotEmpty) {
-      _makePhoneCall(context, contactPhone!);
+  void _callEmergencyContact1(BuildContext context) {
+    if (contactPhone1 != null && contactPhone1!.isNotEmpty) {
+      _makePhoneCall(context, contactPhone1!);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('请先设置紧急联系人电话'),
+          content: Text('请先设置紧急联系人1电话'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _callEmergencyContact2(BuildContext context) {
+    if (contactPhone2 != null && contactPhone2!.isNotEmpty) {
+      _makePhoneCall(context, contactPhone2!);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('请先设置紧急联系人2电话'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -117,8 +136,8 @@ class SosPage extends StatelessWidget {
             ElevatedButton.icon(
               onPressed: () {
                 onSOS();
-                if (contactPhone != null && contactPhone!.isNotEmpty) {
-                  onCallEmergency?.call();
+                if (contactPhone1 != null && contactPhone1!.isNotEmpty) {
+                  onCallEmergency1?.call();
                 }
               },
               style: ElevatedButton.styleFrom(
@@ -149,38 +168,76 @@ class SosPage extends StatelessWidget {
   }
 
   Widget _buildContactCard(BuildContext context) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: BorderSide(color: Colors.grey.shade200)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.family_restroom, color: Colors.redAccent, size: 28),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('紧急联系人', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.grey)),
-                  const SizedBox(height: 6),
-                  Text(
-                    contact,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+    return Column(
+      children: [
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: BorderSide(color: Colors.grey.shade200)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                ],
-              ),
+                  child: const Icon(Icons.star, color: Colors.amber, size: 28),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('紧急联系人1', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.grey)),
+                      const SizedBox(height: 6),
+                      Text(
+                        contact1,
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
-      ),
+        const SizedBox(height: 12),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: BorderSide(color: Colors.grey.shade200)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.favorite, color: Colors.redAccent, size: 28),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('紧急联系人2', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.grey)),
+                      const SizedBox(height: 6),
+                      Text(
+                        contact2,
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -317,24 +374,6 @@ class SosPage extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (hasLocation) ...[
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _openInMapApp(context),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            side: BorderSide(color: Colors.green.shade300),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          icon: Icon(Icons.map, color: Colors.green.shade600),
-                          label: Text(
-                            '在地图中打开',
-                            style: TextStyle(color: Colors.green.shade600),
-                          ),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ],
@@ -345,33 +384,45 @@ class SosPage extends StatelessWidget {
     );
   }
 
-  void _openInMapApp(BuildContext context) async {
-    if (latitude == null || longitude == null) return;
-    final uri = Uri.parse('geo:$latitude,$longitude?q=$latitude,$longitude');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
-  }
-
   Widget _buildQuickActions(BuildContext context) {
-    return Row(
+    return Column(
       children: [
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: () => _callEmergencyContact(context),
-            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-            icon: const Icon(Icons.phone, color: Colors.redAccent),
-            label: const Text('拨打联系人'),
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _callEmergencyContact1(context),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  side: const BorderSide(color: Colors.amber),
+                ),
+                icon: const Icon(Icons.star, color: Colors.amber),
+                label: const Text('拨打联系人1', style: TextStyle(color: Colors.amber)),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _callEmergencyContact2(context),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  side: const BorderSide(color: Colors.redAccent),
+                ),
+                icon: const Icon(Icons.favorite, color: Colors.redAccent),
+                label: const Text('拨打联系人2', style: TextStyle(color: Colors.redAccent)),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: () => _callPolice(context),
-            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-            icon: const Icon(Icons.local_police, color: Colors.redAccent),
-            label: const Text('拨打110'),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: () => _callPolice(context),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(48),
+            side: BorderSide(color: Colors.blue.shade300),
           ),
+          icon: const Icon(Icons.local_police, color: Colors.blue),
+          label: Text('拨打110', style: TextStyle(color: Colors.blue.shade600)),
         ),
       ],
     );

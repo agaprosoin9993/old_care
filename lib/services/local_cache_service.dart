@@ -10,10 +10,24 @@ class LocalCacheService {
 
   static Future<LocalCacheService> getInstance() async {
     if (_instance == null) {
-      _prefs = await SharedPreferences.getInstance();
-      _instance = LocalCacheService._();
+      try {
+        _prefs = await SharedPreferences.getInstance();
+        _instance = LocalCacheService._();
+      } catch (e) {
+        debugPrint('SharedPreferences初始化失败: $e');
+        rethrow;
+      }
     }
     return _instance!;
+  }
+
+  static Future<LocalCacheService?> getInstanceSafe() async {
+    try {
+      return await getInstance();
+    } catch (e) {
+      debugPrint('LocalCacheService安全获取失败: $e');
+      return null;
+    }
   }
 
   static const String _keyUserToken = 'cache_user_token';
